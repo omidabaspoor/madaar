@@ -7,6 +7,7 @@ require_role('advisor','admin');
 $u = current_user();
 
 $isAjax = isset($_SERVER['HTTP_X_CSRF_TOKEN']);
+task_status_schema_ready();
 require_csrf();
 
 $id = (int)input('id');
@@ -20,7 +21,7 @@ if (!$student || $student['role'] !== 'student') {
 
 switch ($action) {
     case 'approve':
-        db()->prepare('UPDATE users SET status="active", advisor_id=COALESCE(advisor_id,?) WHERE id=?')->execute([$u['id'],$id]);
+        db()->prepare('UPDATE users SET status="active", advisor_id=COALESCE(advisor_id,?), activated_at=COALESCE(activated_at,NOW()) WHERE id=?')->execute([$u['id'],$id]);
         notify($id, 'حساب شما تأیید شد ✅', 'مشاور شما را تأیید کرد. برنامه‌ات به‌زودی آماده می‌شود.', 'success', 'student/dashboard.php');
         log_activity((int)$u['id'], 'student_status_changed', 'user', $id, ['دانش‌آموز' => $student['full_name'], 'وضعیت' => 'تایید و فعال‌سازی']);
         $msg = $student['full_name'] . ' تأیید شد.';
@@ -31,7 +32,7 @@ switch ($action) {
         $msg = $student['full_name'] . ' مسدود شد.';
         break;
     case 'activate':
-        db()->prepare('UPDATE users SET status="active" WHERE id=?')->execute([$id]);
+        db()->prepare('UPDATE users SET status="active", activated_at=COALESCE(activated_at,NOW()) WHERE id=?')->execute([$id]);
         log_activity((int)$u['id'], 'student_status_changed', 'user', $id, ['دانش‌آموز' => $student['full_name'], 'وضعیت' => 'فعال‌سازی']);
         $msg = $student['full_name'] . ' فعال شد.';
         break;

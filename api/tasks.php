@@ -239,7 +239,8 @@ case 'publish': {
     if (!in_array($role, ['advisor','admin'], true)) json_out(['ok'=>false,'error'=>'دسترسی ندارید'],403);
     $planId=(int)($in['plan_id']??0); $status = ($in['status']??'published')==='draft'?'draft':'published';
     if (!plan_owned_by_advisor($planId,$me,$role)) json_out(['ok'=>false,'error'=>'برنامه نامعتبر'],403);
-    db()->prepare('UPDATE plans SET status=? WHERE id=?')->execute([$status,$planId]);
+    task_status_schema_ready();
+    db()->prepare("UPDATE plans SET status=?, published_at=IF(?='published', COALESCE(published_at, NOW()), published_at) WHERE id=?")->execute([$status,$status,$planId]);
     $pInfo = db()->query("SELECT title, student_id FROM plans WHERE id=$planId")->fetch();
     $stName = db()->query("SELECT full_name FROM users WHERE id=" . (int)$pInfo['student_id'])->fetchColumn();
     log_activity($me, $status === 'published' ? 'plan_published' : 'plan_updated', 'plan', $planId, [

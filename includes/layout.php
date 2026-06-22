@@ -115,7 +115,12 @@ function page_head(string $title, string $desc = '', array $extraCss = []): void
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet">
   <meta name="csrf-token" content="<?= function_exists('csrf_token') ? e(csrf_token()) : '' ?>">
-  <script>window.MADAR_ICON='<?= asset('icons/icon-192.png') ?>';window.MADAR_BADGE='<?= asset('icons/favicon-64.png') ?>';</script>
+  <script>
+    window.MADAR_ICON='<?= asset('icons/icon-192.png') ?>';
+    window.MADAR_BADGE='<?= asset('icons/favicon-64.png') ?>';
+    window.MADAR_PUSH_PUBLIC_KEY='<?= defined('VAPID_PUBLIC_KEY') ? e((string)VAPID_PUBLIC_KEY) : '' ?>';
+    window.MADAR_PUSH_SUB_URL='<?= url('api/push_subscription.php') ?>';
+  </script>
 </head>
 <body><?php
 }

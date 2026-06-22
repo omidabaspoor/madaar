@@ -42,6 +42,14 @@ define('SESSION_LIFETIME', 60 * 60 * 8);  // 8h
 define('BCRYPT_COST', 12);
 define('CSRF_TOKEN_NAME', '_csrf');
 
+// --- Web Push Notifications ---
+// برای اعلان واقعی حتی وقتی وب‌اپ باز نیست، VAPID را فعال کنید.
+// ساخت کلیدها: php scripts/generate_vapid_keys.php
+// تا وقتی این دو مقدار خالی هستند، سیستم قبلی اعلان‌ها بدون تغییر کار می‌کند.
+define('VAPID_PUBLIC_KEY', 'BLB-0UuL_wwDGfDzO5KGPtslum7oB_uR1NPXkoi49PKZgmZpCOXNdy15Al8SHRLCEempdYtNm48LJy93vDv-NlM');
+define('VAPID_PRIVATE_KEY', 'SzBh4I-RnzKx4IUDlAjBFz0d6kAEZqVYh0YIEl1hc7E');
+define('VAPID_SUBJECT', 'mailto:info@webmania.ir');
+
 // --- آپلود ---
 define('UPLOAD_DIR', __DIR__ . '/../uploads');
 define('MAX_UPLOAD', 2 * 1024 * 1024);

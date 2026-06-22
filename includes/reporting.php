@@ -24,13 +24,9 @@ function report_schema_ready(): bool
           created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           PRIMARY KEY (id),
-          UNIQUE KEY uq_internal_attempt (attempt_id),
-          KEY idx_student (student_id),
-          KEY idx_advisor (advisor_id),
-          KEY idx_exam (exam_id),
-          CONSTRAINT fk_internal_attempt FOREIGN KEY (attempt_id) REFERENCES exam_attempts(id) ON DELETE CASCADE,
-          CONSTRAINT fk_internal_exam FOREIGN KEY (exam_id) REFERENCES exams(id) ON DELETE CASCADE,
-          CONSTRAINT fk_internal_student FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE
+          UNIQUE KEY uq_student_report (student_id, report_type, period_start),
+          KEY idx_report_student (student_id, report_type, period_start),
+          KEY idx_report_status (status, submitted_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         // برای نصب‌هایی که جدول را با نسخه قدیمی/ناقص ساخته‌اند، ستون‌های ضروری را ترمیم کن.
         $cols = [];
@@ -45,8 +41,54 @@ function report_schema_ready(): bool
             'reviewed_at' => 'ALTER TABLE student_reports ADD COLUMN reviewed_at DATETIME NULL AFTER reviewed_by',
         ];
         foreach ($adds as $col=>$sql) if (empty($cols[$col])) db()->exec($sql);
+        try { db()->exec('ALTER TABLE student_reports ADD UNIQUE KEY uq_student_report (student_id, report_type, period_start)'); } catch (Throwable $e) {}
         return $ok = true;
     } catch (Throwable $e) { return $ok = false; }
+}
+
+
+function report_jalali_is_leap(int $jy): bool
+{
+    // الگوریتم رایج تقویم جلالی (دوره ۲۸۲۰ ساله)
+    $a = $jy - (($jy >= 0) ? 474 : 473);
+    $b = 474 + ($a % 2820);
+    return ((($b + 38) * 682) % 2816) < 682;
+}
+function report_jalali_month_length(int $jy, int $jm): int
+{
+    if ($jm <= 6) return 31;
+    if ($jm <= 11) return 30;
+    return report_jalali_is_leap($jy) ? 30 : 29;
+}
+function report_jalali_to_gregorian_date(int $jy, int $jm, int $jd): string
+{
+    $jy += 1595;
+    $days = -355668 + (365 * $jy) + intdiv($jy, 33) * 8 + intdiv((($jy % 33) + 3), 4) + $jd;
+    $days += ($jm < 7) ? (($jm - 1) * 31) : ((($jm - 7) * 30) + 186);
+    $gy = 400 * intdiv($days, 146097);
+    $days %= 146097;
+    if ($days > 36524) {
+        $gy += 100 * intdiv(--$days, 36524);
+        $days %= 36524;
+        if ($days >= 365) $days++;
+    }
+    $gy += 4 * intdiv($days, 1461);
+    $days %= 1461;
+    if ($days > 365) {
+        $gy += intdiv($days - 1, 365);
+        $days = ($days - 1) % 365;
+    }
+    $gd = $days + 1;
+    $sal_a = [0,31, (($gy % 4 === 0 && $gy % 100 !== 0) || ($gy % 400 === 0)) ? 29 : 28,31,30,31,30,31,31,30,31,30,31];
+    for ($gm = 1; $gm <= 12 && $gd > $sal_a[$gm]; $gm++) $gd -= $sal_a[$gm];
+    return sprintf('%04d-%02d-%02d', $gy, $gm, $gd);
+}
+function report_is_jalali_month_last_day(string $date): bool
+{
+    $ts = strtotime($date);
+    if ($ts === false) $ts = time();
+    [$jy, $jm, $jd] = gregorian_to_jalali((int)date('Y',$ts), (int)date('n',$ts), (int)date('j',$ts));
+    return (int)$jd === report_jalali_month_length((int)$jy, (int)$jm);
 }
 
 function report_period(string $type, string $date = 'now'): array
@@ -58,7 +100,11 @@ function report_period(string $type, string $date = 'now'): array
         return [$s, date('Y-m-d', strtotime($s.' +6 day'))];
     }
     if ($type === 'monthly') {
-        return [date('Y-m-01', $ts), date('Y-m-t', $ts)];
+        // ماهانه بر اساس ماه شمسی محاسبه می‌شود تا «آخر ماه» برای کاربر ایرانی دقیق باشد.
+        [$jy, $jm] = gregorian_to_jalali((int)date('Y', $ts), (int)date('n', $ts), (int)date('j', $ts));
+        $startG = report_jalali_to_gregorian_date($jy, $jm, 1);
+        $endG = report_jalali_to_gregorian_date($jy, $jm, report_jalali_month_length($jy, $jm));
+        return [$startG, $endG];
     }
     return [date('Y-m-d', $ts), date('Y-m-d', $ts)];
 }
@@ -71,11 +117,14 @@ function report_auto_snapshot(int $studentId, string $start, string $end): array
 {
     task_status_schema_ready();
     auto_mark_missed_tasks($studentId);
+    $effective = task_effective_condition_sql('t','p','u');
     $st = db()->prepare("SELECT t.*, s.name subj_name, s.color subj_color, DATE_ADD(p.week_start, INTERVAL t.day_index DAY) task_date
         FROM tasks t JOIN plans p ON p.id=t.plan_id
+        JOIN users u ON u.id=t.student_id
         LEFT JOIN subjects s ON s.id=t.subject_id
         WHERE t.student_id=? AND p.status='published'
           AND DATE_ADD(p.week_start, INTERVAL t.day_index DAY) BETWEEN ? AND ?
+          AND $effective
         ORDER BY task_date, t.unit_index, t.sort_order, t.id");
     $st->execute([$studentId,$start,$end]);
     $rows = $st->fetchAll();
@@ -193,17 +242,22 @@ function report_clean_advanced(string $type, array $a): array
 
 function report_period_has_tasks(int $studentId, string $start, string $end): bool
 {
-    $st = db()->prepare("SELECT COUNT(*) FROM tasks t JOIN plans p ON p.id=t.plan_id WHERE t.student_id=? AND p.status='published' AND DATE_ADD(p.week_start, INTERVAL t.day_index DAY) BETWEEN ? AND ?");
+    task_status_schema_ready();
+    $effective = task_effective_condition_sql('t','p','u');
+    $st = db()->prepare("SELECT COUNT(*) FROM tasks t JOIN plans p ON p.id=t.plan_id JOIN users u ON u.id=t.student_id WHERE t.student_id=? AND p.status='published' AND DATE_ADD(p.week_start, INTERVAL t.day_index DAY) BETWEEN ? AND ? AND $effective");
     $st->execute([$studentId,$start,$end]);
     return (int)$st->fetchColumn() > 0;
 }
 function report_period_is_closed(int $studentId, string $start, string $end): bool
 {
+    task_status_schema_ready();
     // بسته یعنی همه‌ی تسک‌های بازه واقعاً تعیین‌وضعیت شده‌اند: کامل، ناقص یا قرمز.
     // داده‌های قدیمی ممکن است completion_status خالی/NULL داشته باشند؛ اگر is_done=1 باشد کامل حساب می‌شوند، وگرنه pending.
-    $st = db()->prepare("SELECT COUNT(*) FROM tasks t JOIN plans p ON p.id=t.plan_id
+    $effective = task_effective_condition_sql('t','p','u');
+    $st = db()->prepare("SELECT COUNT(*) FROM tasks t JOIN plans p ON p.id=t.plan_id JOIN users u ON u.id=t.student_id
         WHERE t.student_id=? AND p.status='published'
           AND DATE_ADD(p.week_start, INTERVAL t.day_index DAY) BETWEEN ? AND ?
+          AND $effective
           AND COALESCE(NULLIF(t.completion_status,''), IF(t.is_done=1,'full','pending')) NOT IN ('full','partial','missed')");
     $st->execute([$studentId,$start,$end]);
     return (int)$st->fetchColumn() === 0;
@@ -216,50 +270,156 @@ function report_is_submitted(int $studentId, string $type, string $start): bool
     return (($st->fetchColumn() ?: 'draft') === 'submitted');
 }
 
+
+function report_deadline_passed(string $type, string $start, string $end): bool
+{
+    $today = date('Y-m-d');
+    // روزانه: ساعت ۰۰:۰۰ روز بعد قفل می‌شود.
+    if ($type === 'daily') return $start < $today;
+    // هفتگی: جمعه ساعت ۲۴ تمام می‌شود؛ از شنبه قفل است.
+    if ($type === 'weekly') return $end < $today;
+    // ماهانه: آخرین روز ماه شمسی ساعت ۲۴ تمام می‌شود؛ از روز بعد قفل است.
+    if ($type === 'monthly') return $end < $today;
+    return false;
+}
+
+function report_is_locked(string $type, string $date = 'now'): bool
+{
+    [$s,$e] = report_period($type,$date);
+    return report_deadline_passed($type,$s,$e);
+}
+
 function report_due_daily_after_tasks(int $studentId, ?string $date = null): bool
 {
     $date = $date ?: date('Y-m-d');
     [$start,$end] = report_period('daily',$date);
     if (!report_period_has_tasks($studentId,$start,$end)) return false;
-    if (!report_period_is_closed($studentId,$start,$end)) return false;
-    return !report_is_submitted($studentId,'daily',$start);
+    if (report_is_submitted($studentId,'daily',$start)) return false;
+
+    // حالت ۱: هر زمان همه تسک‌ها تعیین‌وضعیت شدند (کامل/ناقص/قرمز)
+    if (report_period_is_closed($studentId,$start,$end)) return true;
+
+    // حالت ۲: از ساعت ۲۳ تا ۲۴ همان روز حتی اگر هنوز تسک pending دارد، گزارش روزانه باید گرفته شود.
+    return $start === date('Y-m-d') && (int)date('H') === 23;
+}
+
+function report_daily_has_pending_tasks(int $studentId, string $date): bool
+{
+    task_status_schema_ready();
+    [$start,$end] = report_period('daily',$date);
+    $effective = task_effective_condition_sql('t','p','u');
+    $st = db()->prepare("SELECT COUNT(*) FROM tasks t JOIN plans p ON p.id=t.plan_id JOIN users u ON u.id=t.student_id
+        WHERE t.student_id=? AND p.status='published'
+          AND DATE_ADD(p.week_start, INTERVAL t.day_index DAY) BETWEEN ? AND ?
+          AND $effective
+          AND COALESCE(NULLIF(t.completion_status,''), IF(t.is_done=1,'full','pending')) NOT IN ('full','partial','missed')");
+    $st->execute([$studentId,$start,$end]);
+    return (int)$st->fetchColumn() > 0;
+}
+
+function report_mark_night_reminder_sent(int $studentId, string $date): bool
+{
+    [$s,$e] = report_period('daily',$date);
+    $r = report_get_or_create($studentId,'daily',$s);
+    $adv = $r['advanced'] ?? [];
+    if (!empty($adv['student_night_notified'])) return false;
+    $adv['student_night_notified'] = date('Y-m-d H:i:s');
+    db()->prepare('UPDATE student_reports SET advanced_json=? WHERE id=?')
+        ->execute([json_encode($adv, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES), $r['id']]);
+    return true;
+}
+
+function report_weekly_due_after_daily(int $studentId, ?string $date = null): bool
+{
+    $date = $date ?: date('Y-m-d');
+    if (persian_day_index($date) !== 6) return false; // جمعه
+    [$ds] = report_period('daily',$date);
+    if (!report_is_submitted($studentId,'daily',$ds)) return false;
+    [$s,$e] = report_period('weekly',$date);
+    if (!report_period_has_tasks($studentId,$s,$e)) return false;
+    return !report_is_submitted($studentId,'weekly',$s);
+}
+
+function report_monthly_due_after_daily(int $studentId, ?string $date = null): bool
+{
+    $date = $date ?: date('Y-m-d');
+    if (!report_is_jalali_month_last_day($date)) return false;
+    [$ds] = report_period('daily',$date);
+    if (!report_is_submitted($studentId,'daily',$ds)) return false;
+    [$s,$e] = report_period('monthly',$date);
+    if (!report_period_has_tasks($studentId,$s,$e)) return false;
+    return !report_is_submitted($studentId,'monthly',$s);
+}
+
+function report_next_due_after_submit(int $studentId, string $submittedType, string $date = 'now'): ?array
+{
+    $date = $date === 'now' ? date('Y-m-d') : $date;
+    if ($submittedType === 'daily') {
+        if (report_weekly_due_after_daily($studentId,$date)) {
+            [$s,$e] = report_period('weekly',$date);
+            report_get_or_create($studentId,'weekly',$s);
+            return ['type'=>'weekly','label'=>'هفتگی','start'=>$s,'end'=>$e,'url'=>url('student/reports.php?type=weekly&date='.$s), 'message'=>'گزارش روزانه ثبت شد؛ حالا گزارش هفتگی جمعه را تکمیل کن.'];
+        }
+        if (report_monthly_due_after_daily($studentId,$date)) {
+            [$s,$e] = report_period('monthly',$date);
+            report_get_or_create($studentId,'monthly',$s);
+            return ['type'=>'monthly','label'=>'ماهانه','start'=>$s,'end'=>$e,'url'=>url('student/reports.php?type=monthly&date='.$s), 'message'=>'گزارش روزانه ثبت شد؛ امروز آخر ماه است، گزارش ماهانه را هم تکمیل کن.'];
+        }
+    }
+    if ($submittedType === 'weekly' && report_monthly_due_after_daily($studentId,$date)) {
+        [$s,$e] = report_period('monthly',$date);
+        report_get_or_create($studentId,'monthly',$s);
+        return ['type'=>'monthly','label'=>'ماهانه','start'=>$s,'end'=>$e,'url'=>url('student/reports.php?type=monthly&date='.$s), 'message'=>'گزارش هفتگی ثبت شد؛ حالا گزارش ماهانه را تکمیل کن.'];
+    }
+    return null;
+}
+
+
+function report_can_submit_now(int $studentId, string $type, string $date = 'now'): bool
+{
+    [$s,$e] = report_period($type,$date);
+    if (report_deadline_passed($type,$s,$e)) return false;
+    // گزارش ثبت‌شده تا قبل از ددلاین قابل ویرایش/ارسال دوباره است.
+    if (report_is_submitted($studentId,$type,$s)) return true;
+
+    if ($type === 'daily') return report_due_daily_after_tasks($studentId,$s);
+    if ($type === 'weekly') return report_weekly_due_after_daily($studentId,$e);
+    if ($type === 'monthly') return report_monthly_due_after_daily($studentId,$e);
+    return false;
 }
 
 function report_pending_items(int $studentId): array
 {
     $items = [];
-    // روزانه: فقط وقتی روز تمام شده باشد (دیروز و چند روز اخیر) یا همه تسک‌های امروز بسته شده باشند.
-    for ($i=0; $i<=3; $i++) {
-        $date = date('Y-m-d', strtotime("-$i day"));
-        [$s,$e] = report_period('daily',$date);
-        if (!report_period_has_tasks($studentId,$s,$e) || report_is_submitted($studentId,'daily',$s)) continue;
-        $isPast = $s < date('Y-m-d');
-        if ($isPast || report_period_is_closed($studentId,$s,$e)) {
-            report_get_or_create($studentId,'daily',$s);
-            $items[] = ['type'=>'daily','label'=>'روزانه','start'=>$s,'end'=>$e,'url'=>url('student/reports.php?type=daily&date='.$s)];
+    $today = date('Y-m-d');
+
+    // روزانه امروز: یا همه تسک‌ها تعیین‌وضعیت شده‌اند، یا ساعت ۲۳ تا ۲۴ رسیده و هنوز گزارش ثبت نشده.
+    [$s,$e] = report_period('daily',$today);
+    if (report_due_daily_after_tasks($studentId,$today)) {
+        $isNight = ((int)date('H') === 23) && report_daily_has_pending_tasks($studentId,$today);
+        report_get_or_create($studentId,'daily',$s);
+        if ($isNight && report_mark_night_reminder_sent($studentId,$today)) {
+            notify($studentId, '⏰ کجایی؟ گزارش امروز هنوز ثبت نشده', 'بین ساعت ۱۱ تا ۱۲ شب هستیم؛ حتی اگر همه تسک‌ها کامل نشده، گزارش روزانه امروزت را همین الان ثبت کن.', 'warning', 'student/reports.php?type=daily&date='.$s);
         }
+        $items[] = ['type'=>'daily','label'=>$isNight?'روزانه فوری':'روزانه','start'=>$s,'end'=>$e,'url'=>url('student/reports.php?type=daily&date='.$s), 'urgent'=>$isNight];
     }
-    // هفتگی: هفته قبل به بعد، یا اگر هفته جاری همه تسک‌هایش بسته شد.
-    foreach ([date('Y-m-d'), date('Y-m-d', strtotime('-7 day')), date('Y-m-d', strtotime('-14 day'))] as $date) {
-        [$s,$e] = report_period('weekly',$date);
-        if (!report_period_has_tasks($studentId,$s,$e) || report_is_submitted($studentId,'weekly',$s)) continue;
-        $isEnded = $e < date('Y-m-d');
-        if ($isEnded || report_period_is_closed($studentId,$s,$e)) {
-            report_get_or_create($studentId,'weekly',$s);
-            $items[] = ['type'=>'weekly','label'=>'هفتگی','start'=>$s,'end'=>$e,'url'=>url('student/reports.php?type=weekly&date='.$s)];
-        }
+
+    // هفتگی: فقط جمعه بعد از ثبت گزارش روزانه همان روز.
+    if (report_weekly_due_after_daily($studentId,$today)) {
+        [$s,$e] = report_period('weekly',$today);
+        report_get_or_create($studentId,'weekly',$s);
+        $items[] = ['type'=>'weekly','label'=>'هفتگی جمعه','start'=>$s,'end'=>$e,'url'=>url('student/reports.php?type=weekly&date='.$s)];
     }
-    // ماهانه: ماه قبل به بعد، یا اگر ماه جاری کاملاً بسته شد.
-    foreach ([date('Y-m-d'), date('Y-m-d', strtotime('first day of last month')), date('Y-m-d', strtotime('first day of -2 month'))] as $date) {
-        [$s,$e] = report_period('monthly',$date);
-        if (!report_period_has_tasks($studentId,$s,$e) || report_is_submitted($studentId,'monthly',$s)) continue;
-        $isEnded = $e < date('Y-m-d');
-        if ($isEnded || report_period_is_closed($studentId,$s,$e)) {
-            report_get_or_create($studentId,'monthly',$s);
-            $items[] = ['type'=>'monthly','label'=>'ماهانه','start'=>$s,'end'=>$e,'url'=>url('student/reports.php?type=monthly&date='.$s)];
-        }
+
+    // ماهانه: آخرین روز ماه شمسی، بعد از ثبت گزارش روزانه همان روز.
+    if (report_monthly_due_after_daily($studentId,$today)) {
+        [$s,$e] = report_period('monthly',$today);
+        report_get_or_create($studentId,'monthly',$s);
+        $items[] = ['type'=>'monthly','label'=>'ماهانه آخر ماه','start'=>$s,'end'=>$e,'url'=>url('student/reports.php?type=monthly&date='.$s)];
     }
-    // حذف تکراری‌ها
+
+    // گزارش‌های عقب‌افتاده دیگر قابل تکمیل نیستند: روزانه، هفتگی و ماهانه همگی ساعت ۲۴ ددلاین خود قفل می‌شوند.
+
     $seen = []; $out = [];
     foreach ($items as $it) { $k=$it['type'].'-'.$it['start']; if(isset($seen[$k])) continue; $seen[$k]=1; $out[]=$it; }
     return $out;

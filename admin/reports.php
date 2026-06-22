@@ -56,8 +56,17 @@ if ($plan) {
     $rows->execute([$plan['id']]);
     $all = $rows->fetchAll();
     $courses=[];
+    $planPublishedBase = (string)($plan['published_at'] ?: ($plan['updated_at'] ?: $plan['created_at']));
+    $effParts = [
+      $plan['week_start'],
+      date('Y-m-d', strtotime($planPublishedBase)),
+      date('Y-m-d', strtotime((string)($student['activated_at'] ?: $student['created_at']))),
+    ];
+    $effectiveStart = max($effParts);
     foreach ($all as $t) {
+        $taskDate = date('Y-m-d', strtotime($plan['week_start'].' +'.(int)$t['day_index'].' day'));
         $tasksByDay[(int)$t['day_index']][] = $t;
+        if ($taskDate < $effectiveStart) continue; // قبل از انتشار/ثبت‌نام، در آمار مشاور حساب نشود
         $stt = task_status($t); $stats['total']++; $stats['score'] += task_score($t);
         if (isset($stats[$stt])) $stats[$stt]++;
         if ($t['course_percent'] !== null) $courses[]=(int)$t['course_percent'];

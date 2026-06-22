@@ -63,7 +63,7 @@ panel_start('گزارش حرفه‌ای', $student['full_name'].' · '.report_ty
     <div class="flex items-center gap-3">
       <h3><?= e(report_type_label($r['report_type'])) ?> · <?= jalali_date($r['period_start']) ?><?= $r['period_start']!==$r['period_end']?' تا '.jalali_date($r['period_end']):'' ?></h3>
       <?php 
-        $isReportLocked = ($r['report_type'] === 'daily' && $r['period_start'] < date('Y-m-d'));
+        $isReportLocked = report_deadline_passed((string)$r['report_type'], (string)$r['period_start'], (string)$r['period_end']);
         if ($r['status'] === 'submitted'): 
       ?>
         <span class="badge badge-sage">ارسال شده</span>

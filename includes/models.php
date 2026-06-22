@@ -31,6 +31,18 @@ function task_status_schema_ready(): bool
         if (empty($cols['course_percent'])) db()->exec("ALTER TABLE tasks ADD COLUMN course_percent TINYINT UNSIGNED DEFAULT NULL AFTER completion_status");
         if (empty($cols['student_feeling'])) db()->exec("ALTER TABLE tasks ADD COLUMN student_feeling VARCHAR(30) DEFAULT NULL AFTER course_percent");
         if (empty($cols['status_updated_at'])) db()->exec("ALTER TABLE tasks ADD COLUMN status_updated_at DATETIME DEFAULT NULL AFTER completed_at");
+        // زمان انتشار برنامه برای جلوگیری از قرمز شدن روزهایی که قبل از دسترسی دانش‌آموز/انتشار برنامه بوده‌اند.
+        try {
+            $pcols = [];
+            foreach (db()->query('SHOW COLUMNS FROM plans')->fetchAll() as $pc) $pcols[$pc['Field']] = true;
+            if (empty($pcols['published_at'])) db()->exec("ALTER TABLE plans ADD COLUMN published_at DATETIME DEFAULT NULL AFTER status");
+            db()->exec("UPDATE plans SET published_at=updated_at WHERE status='published' AND published_at IS NULL");
+        } catch (Throwable $e) {}
+        try {
+            $ucols = [];
+            foreach (db()->query('SHOW COLUMNS FROM users')->fetchAll() as $uc) $ucols[$uc['Field']] = true;
+            if (empty($ucols['activated_at'])) db()->exec("ALTER TABLE users ADD COLUMN activated_at DATETIME DEFAULT NULL AFTER status");
+        } catch (Throwable $e) {}
         // تبدیل داده‌های قدیمی: تیک‌های قبلی = کامل، بقیه = در انتظار
         db()->exec("UPDATE tasks SET completion_status=IF(is_done=1,'full','pending') WHERE completion_status IS NULL OR completion_status='' ");
         return $ready = true;
@@ -80,15 +92,45 @@ function feeling_info(?string $key): ?array
 {
     return $key && isset(TASK_FEELINGS[$key]) ? TASK_FEELINGS[$key] : null;
 }
+
+function task_effective_start_sql(string $planAlias='p', string $userAlias='u'): string
+{
+    // روز شروع واقعی مسئولیت دانش‌آموز = دیرترینِ شروع هفته، زمان انتشار/ساخت برنامه، و تاریخ ثبت‌نام دانش‌آموز.
+    // روزهای قبل از این تاریخ نه قرمز می‌شوند و نه در آمار/گزارش به‌عنوان عقب‌ماندگی حساب می‌شوند.
+    return "GREATEST({$planAlias}.week_start, DATE(COALESCE({$planAlias}.published_at, {$planAlias}.updated_at, {$planAlias}.created_at)), DATE(COALESCE({$userAlias}.activated_at, {$userAlias}.created_at)))";
+}
+function task_effective_condition_sql(string $taskAlias='t', string $planAlias='p', string $userAlias='u'): string
+{
+    return "DATE_ADD({$planAlias}.week_start, INTERVAL {$taskAlias}.day_index DAY) >= " . task_effective_start_sql($planAlias, $userAlias);
+}
+
 /** تسک‌های روزهای گذشته که هنوز ثبت نشده‌اند، خودکار قرمز می‌شوند. */
 function auto_mark_missed_tasks(?int $studentId = null): int
 {
     if (!task_status_schema_ready()) return 0;
-    $sql = "UPDATE tasks t JOIN plans p ON p.id=t.plan_id
+    $effective = task_effective_condition_sql('t','p','u');
+
+    // ترمیم داده‌های قبلی: اگر تسکی قبل از تاریخ واقعی دسترسی/انتشار، خودکار قرمز شده باشد، به pending برگردد.
+    // این دقیقاً مشکل دانش‌آموزی را حل می‌کند که وسط هفته ثبت‌نام یا برنامه‌اش منتشر شده است.
+    $resetSql = "UPDATE tasks t
+            JOIN plans p ON p.id=t.plan_id
+            JOIN users u ON u.id=t.student_id
+            SET t.completion_status='pending', t.is_done=0, t.done_count=0, t.course_percent=NULL,
+                t.completed_at=NULL, t.status_updated_at=NULL
+            WHERE p.status='published' AND t.completion_status='missed'
+              AND NOT ($effective)";
+    $params = [];
+    if ($studentId !== null) { $resetSql .= ' AND t.student_id=?'; $params[] = $studentId; }
+    try { $rst = db()->prepare($resetSql); $rst->execute($params); } catch (Throwable $e) {}
+
+    $sql = "UPDATE tasks t
+            JOIN plans p ON p.id=t.plan_id
+            JOIN users u ON u.id=t.student_id
             SET t.completion_status='missed', t.is_done=0, t.done_count=0, t.course_percent=0,
                 t.completed_at=NULL, t.status_updated_at=NOW()
             WHERE p.status='published' AND t.completion_status='pending'
-              AND DATE_ADD(p.week_start, INTERVAL t.day_index DAY) < CURDATE()";
+              AND DATE_ADD(p.week_start, INTERVAL t.day_index DAY) < CURDATE()
+              AND $effective";
     $params = [];
     if ($studentId !== null) { $sql .= ' AND t.student_id=?'; $params[] = $studentId; }
     $st = db()->prepare($sql); $st->execute($params);
@@ -130,12 +172,14 @@ function advisor_students(int $advisorId, ?string $status = null, string $q = ''
     $role = $adv['role'] ?? 'advisor';
     
     $score = task_score_sql('t');
+    $effSub = task_effective_condition_sql('t','p','u');
+    $taskJoin = ' FROM tasks t JOIN plans p ON p.id=t.plan_id WHERE t.student_id=u.id AND p.status="published" AND ' . $effSub;
     $sql = 'SELECT u.*,
-            (SELECT COUNT(*) FROM tasks t WHERE t.student_id=u.id) AS total_tasks,
-            (SELECT COALESCE(SUM('.$score.'),0) FROM tasks t WHERE t.student_id=u.id) AS done_tasks,
-            (SELECT COUNT(*) FROM tasks t WHERE t.student_id=u.id AND t.completion_status="full") AS full_tasks,
-            (SELECT COUNT(*) FROM tasks t WHERE t.student_id=u.id AND t.completion_status="partial") AS partial_tasks,
-            (SELECT COUNT(*) FROM tasks t WHERE t.student_id=u.id AND t.completion_status="missed") AS missed_tasks
+            (SELECT COUNT(*) '.$taskJoin.') AS total_tasks,
+            (SELECT COALESCE(SUM('.$score.'),0) '.$taskJoin.') AS done_tasks,
+            (SELECT COUNT(*) '.$taskJoin.' AND t.completion_status="full") AS full_tasks,
+            (SELECT COUNT(*) '.$taskJoin.' AND t.completion_status="partial") AS partial_tasks,
+            (SELECT COUNT(*) '.$taskJoin.' AND t.completion_status="missed") AS missed_tasks
             FROM users u WHERE u.role="student"';
             
     $params = [];
@@ -175,6 +219,7 @@ function get_user(int $id): ?array
 /* ---------- آمار مشاور ---------- */
 function advisor_stats(int $advisorId): array
 {
+    task_status_schema_ready();
     $pdo = db();
     $adv = get_user($advisorId);
     $accessMode = $adv['access_mode'] ?? 'all';
@@ -219,10 +264,12 @@ function advisor_stats(int $advisorId): array
 
     if (!empty($studentIds)) {
         $placeholders = implode(',', array_fill(0, count($studentIds), '?'));
-        $st = $pdo->prepare("SELECT COUNT(*) FROM tasks WHERE student_id IN ($placeholders) AND is_done=1");
+        $effective = task_effective_condition_sql('t','p','u');
+        $baseTaskSql = "FROM tasks t JOIN plans p ON p.id=t.plan_id JOIN users u ON u.id=t.student_id WHERE t.student_id IN ($placeholders) AND p.status='published' AND $effective";
+        $st = $pdo->prepare("SELECT COUNT(*) $baseTaskSql AND t.is_done=1");
         $st->execute($studentIds);
         $tasksDone = (int)$st->fetchColumn();
-        $st = $pdo->prepare("SELECT COUNT(*) FROM tasks WHERE student_id IN ($placeholders)");
+        $st = $pdo->prepare("SELECT COUNT(*) $baseTaskSql");
         $st->execute($studentIds);
         $tasksTotal = (int)$st->fetchColumn();
     } else {
@@ -266,11 +313,13 @@ function plan_progress(int $planId): array
 {
     task_status_schema_ready();
     $score = task_score_sql('t');
+    $effective = task_effective_condition_sql('t','p','u');
     $st = db()->prepare("SELECT COUNT(*) total, COALESCE(SUM($score),0) score,
         SUM(t.completion_status='full') full_count,
         SUM(t.completion_status='partial') partial_count,
         SUM(t.completion_status='missed') missed_count
-        FROM tasks t WHERE t.plan_id=?");
+        FROM tasks t JOIN plans p ON p.id=t.plan_id JOIN users u ON u.id=t.student_id
+        WHERE t.plan_id=? AND $effective");
     $st->execute([$planId]);
     $r = $st->fetch();
     $total = (int)$r['total']; $scoreVal = (float)$r['score'];
@@ -311,12 +360,13 @@ function student_week_stats(int $studentId): array
     auto_mark_missed_tasks($studentId);
     $weekStart = week_saturday();
     $score = task_score_sql('t');
+    $effective = task_effective_condition_sql('t','p','u');
     $st = db()->prepare("SELECT COUNT(*) total, COALESCE(SUM($score),0) score,
         SUM(t.completion_status='full') full_count,
         SUM(t.completion_status='partial') partial_count,
         SUM(t.completion_status='missed') missed_count
-        FROM tasks t JOIN plans p ON p.id=t.plan_id
-        WHERE t.student_id=? AND p.week_start=? AND p.status=\"published\"");
+        FROM tasks t JOIN plans p ON p.id=t.plan_id JOIN users u ON u.id=t.student_id
+        WHERE t.student_id=? AND p.week_start=? AND p.status=\"published\" AND $effective");
     $st->execute([$studentId, $weekStart]);
     $r = $st->fetch();
     $total=(int)$r['total']; $scoreVal=(float)$r['score'];
@@ -336,13 +386,14 @@ function student_week_chart(int $studentId): array
     $out = [];
     $weekStart = week_saturday();
     $score = task_score_sql('t');
+    $effective = task_effective_condition_sql('t','p','u');
     for ($i=0; $i<7; $i++) {
         $st = db()->prepare("SELECT COUNT(*) total, COALESCE(SUM($score),0) score,
             SUM(t.completion_status='full') full_count,
             SUM(t.completion_status='partial') partial_count,
             SUM(t.completion_status='missed') missed_count
-            FROM tasks t JOIN plans p ON p.id=t.plan_id
-            WHERE t.student_id=? AND p.week_start=? AND t.day_index=? AND p.status=\"published\"");
+            FROM tasks t JOIN plans p ON p.id=t.plan_id JOIN users u ON u.id=t.student_id
+            WHERE t.student_id=? AND p.week_start=? AND t.day_index=? AND p.status=\"published\" AND $effective");
         $st->execute([$studentId, $weekStart, $i]);
         $r = $st->fetch();
         $total=(int)$r['total']; $scoreVal=(float)$r['score'];
@@ -359,10 +410,12 @@ function student_subject_progress(int $studentId): array
 {
     task_status_schema_ready();
     $score = task_score_sql('t');
+    $effective = task_effective_condition_sql('t','p','u');
     $st = db()->prepare("SELECT COALESCE(s.name,t.title) name, COALESCE(s.color,\"#6b8872\") color,
         COUNT(*) total, COALESCE(SUM($score),0) done
         FROM tasks t LEFT JOIN subjects s ON s.id=t.subject_id
-        WHERE t.student_id=? GROUP BY COALESCE(s.id,t.title) ORDER BY total DESC LIMIT 8");
+        JOIN plans p ON p.id=t.plan_id JOIN users u ON u.id=t.student_id
+        WHERE t.student_id=? AND p.status='published' AND $effective GROUP BY COALESCE(s.id,t.title) ORDER BY total DESC LIMIT 8");
     $st->execute([$studentId]);
     $rows = $st->fetchAll();
     foreach ($rows as &$r) { $r['pct'] = (int)$r['total'] ? round(((float)$r['done'])/(int)$r['total']*100) : 0; }

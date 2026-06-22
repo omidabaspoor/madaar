@@ -23,37 +23,38 @@ function panel_start(string $title, string $subtitle, string $role, string $acti
 
     $items = $role === 'admin' ? [
         'main' => array_filter([
-            ['dashboard','داشبورد کلان','home','admin/dashboard.php'],
-            is_chief_advisor() ? ['advisors','مدیریت مشاوران','users','admin/advisors.php'] : null,
-            ['students','دانش‌آموزان من','users','admin/students.php'],
-            ['plans','برنامه‌ریزی هفتگی','calendar','admin/plans.php'],
-            ['meetings','برنامه‌ریزی جلسات','calendar','admin/schedule_meeting.php'],
-            ['exams','آزمون‌ساز آنلاین','clipboard','admin/exams.php'],
-            ['student_reports','گزارش‌های روزانه/حرفه‌ای','edit','admin/student_reports.php'],
-            ['internal_exam','کارنامه‌ها و تحلیل آزمون','chart','admin/internal_exam_reports.php'],
-            ['messages','پیام‌ها و چت‌باکس','message','admin/messages.php'],
+            ['dashboard','داشبورد','home','admin/dashboard.php'],
+            ['students','دانش‌آموزان','users','admin/students.php'],
+            ['plans','برنامه‌ها','calendar','admin/plans.php'],
+            ['student_reports','گزارش حرفه‌ای','edit','admin/student_reports.php'],
+            ['reports','گزارش عملکرد','chart','admin/reports.php'],
+            ['exams','آزمون‌ساز','clipboard','admin/exams.php'],
+            ['internal_exam','تحلیل آزمون','chart','admin/internal_exam_reports.php'],
+            ['meetings','جلسات','calendar','admin/schedule_meeting.php'],
+            ['messages','پیام‌ها','message','admin/messages.php'],
+            is_chief_advisor() ? ['advisors','مشاوران','users','admin/advisors.php'] : null,
         ]),
         'other' => [
-            ['guide','راهنمای پنل','book','admin/guide.php'],
-            ['achievements','مدیریت دستاوردها','trophy','admin/achievements.php'],
-            ['settings','تنظیمات سامانه','settings','admin/settings.php'],
+            ['guide','راهنما','book','admin/guide.php'],
+            ['achievements','دستاوردها','trophy','admin/achievements.php'],
+            ['settings','تنظیمات','settings','admin/settings.php'],
         ],
     ] : [
         'main' => [
             ['dashboard','خانه','home','student/dashboard.php'],
-            ['plan','برنامه هفتگی','calendar','student/plan.php'],
-            ['reports','گزارش حرفه‌ای','edit','student/reports.php?type=weekly'],
-            ['meetings','جلسات مشاوره','calendar','student/meetings.php'],
-            ['exams','آزمون‌های آنلاین','clipboard','student/exams.php'],
-            ['exam_analyses','تحلیل آزمون‌ها','chart','student/exam_analyses.php'],
-            ['messages','پیام با مشاور','message','student/messages.php'],
-            ['progress','نمودار پیشرفت','chart','student/progress.php'],
-            ['reviews','برنامه مرور','repeat','student/reviews.php'],
+            ['plan','برنامه','calendar','student/plan.php'],
+            ['reports','گزارش','edit','student/reports.php?type=daily'],
+            ['progress','پیشرفت','chart','student/progress.php'],
+            ['reviews','مرور','repeat','student/reviews.php'],
+            ['exams','آزمون‌ها','clipboard','student/exams.php'],
+            ['exam_analyses','تحلیل آزمون','chart','student/exam_analyses.php'],
+            ['meetings','جلسات','calendar','student/meetings.php'],
+            ['messages','پیام‌ها','message','student/messages.php'],
         ],
         'other' => [
-            ['guide','راهنمای پنل','book','student/guide.php'],
+            ['guide','راهنما','book','student/guide.php'],
             ['achievements','دستاوردها','trophy','student/achievements.php'],
-            ['profile','پروفایل من','user','student/profile.php'],
+            ['profile','پروفایل','user','student/profile.php'],
         ],
     ];
 
@@ -122,6 +123,32 @@ function panel_start(string $title, string $subtitle, string $role, string $acti
     <?php foreach (get_flashes() as $f): ?>
       <div class="alert alert-<?= $f['type']==='success'?'success':($f['type']==='error'?'error':'info') ?>" style="margin-bottom:18px"><?= icon('info',18) ?><span><?= e($f['msg']) ?></span></div>
     <?php endforeach; ?>
+    <?php
+      $globalPendingReports = [];
+      if ($role === 'student') {
+          try {
+              require_once __DIR__ . '/reporting.php';
+              $globalPendingReports = report_pending_items((int)$u['id']);
+          } catch (Throwable $e) { $globalPendingReports = []; }
+      }
+      if ($globalPendingReports && $active !== 'reports'):
+        $firstReport = $globalPendingReports[0];
+        $isUrgentReport = !empty($firstReport['urgent']);
+    ?>
+      <div class="panel report-due-global <?= $isUrgentReport ? 'urgent' : '' ?>" style="margin-bottom:18px;border:1px solid <?= $isUrgentReport ? 'rgba(255,107,53,.45)' : 'var(--gold)' ?>;background:<?= $isUrgentReport ? 'linear-gradient(135deg,rgba(255,107,53,.13),rgba(12,21,18,.92))' : 'linear-gradient(135deg,rgba(203,172,128,.12),rgba(12,21,18,.92))' ?>;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="font-size:1.6rem"><?= $isUrgentReport ? '⏰' : '📝' ?></span>
+          <div>
+            <b><?= $isUrgentReport ? 'کجایی؟ گزارش امروز هنوز ثبت نشده' : 'گزارش در انتظار تکمیل داری' ?></b>
+            <div class="muted" style="font-size:.84rem;margin-top:3px">
+              <?= e($firstReport['label']) ?> · <?= jalali_date($firstReport['start']) ?><?= $firstReport['start']!==$firstReport['end']?' تا '.jalali_date($firstReport['end']):'' ?>
+              <?php if (count($globalPendingReports) > 1): ?> · <?= fa_num(count($globalPendingReports)) ?> گزارش در انتظار<?php endif; ?>
+            </div>
+          </div>
+        </div>
+        <a class="btn btn-gold btn-sm" href="<?= e($firstReport['url']) ?>" style="font-weight:900">تکمیل گزارش</a>
+      </div>
+    <?php endif; ?>
 <?php
 }
 

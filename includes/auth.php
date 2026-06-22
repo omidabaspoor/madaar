@@ -148,6 +148,17 @@ function notify(int $userId, string $title, string $body = '', string $type = 'i
 {
     $st = db()->prepare('INSERT INTO notifications (user_id,title,body,type,link) VALUES (?,?,?,?,?)');
     $st->execute([$userId, $title, $body, $type, $link]);
+
+    // اگر Web Push با VAPID فعال شده باشد، همان لحظه به مرورگرهای Subscribe‌شده هم ارسال می‌شود.
+    try {
+        require_once __DIR__ . '/web_push.php';
+        web_push_send_to_user($userId, [
+            'title' => $title,
+            'body'  => $body,
+            'type'  => $type,
+            'url'   => $link ?: 'student/dashboard.php',
+        ]);
+    } catch (Throwable $e) {}
 }
 function unread_notif_count(int $userId): int
 {
