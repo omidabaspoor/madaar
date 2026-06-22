@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS users (
   grade           VARCHAR(40)  DEFAULT NULL,            -- پایه
   advisor_id      INT UNSIGNED DEFAULT NULL,            -- مشاور این دانش‌آموز
   status          ENUM('pending','active','suspended') NOT NULL DEFAULT 'pending',
+  activated_at    DATETIME DEFAULT NULL,
   mood            VARCHAR(20)  DEFAULT NULL,            -- حال امروز
   mood_date       DATE DEFAULT NULL,                       -- تاریخ ثبت حال روزانه
   streak          INT UNSIGNED NOT NULL DEFAULT 0,
@@ -98,6 +99,7 @@ CREATE TABLE IF NOT EXISTS plans (
   week_start  DATE NOT NULL,                 -- شنبه آن هفته (میلادی معادل)
   note        TEXT DEFAULT NULL,
   status      ENUM('draft','published','archived') NOT NULL DEFAULT 'draft',
+  published_at DATETIME DEFAULT NULL,
   created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
@@ -185,6 +187,23 @@ CREATE TABLE IF NOT EXISTS notifications (
   created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_notif_user (user_id, is_read)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS web_push_subscriptions (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id INT UNSIGNED NOT NULL,
+  endpoint TEXT NOT NULL,
+  p256dh VARCHAR(255) NOT NULL,
+  auth VARCHAR(255) NOT NULL,
+  user_agent VARCHAR(255) DEFAULT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  last_success_at DATETIME DEFAULT NULL,
+  last_error VARCHAR(255) DEFAULT NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  PRIMARY KEY (id),
+  KEY idx_wps_user (user_id, is_active),
+  UNIQUE KEY uniq_wps_endpoint_hash (endpoint(191))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ----------------------------------------------------------

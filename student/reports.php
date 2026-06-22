@@ -8,16 +8,15 @@ $u = current_user();
 
 report_lock_past_daily_reports((int)$u['id']);
 
-// اگر صفحه بدون پارامتر باز شد، به گزارش هفتگی همین هفته هدایت کن تا همیشه صفحه پایدار و قابل نمایش باشد.
-// گزارش روزانه همچنان از تب‌ها و لینک مستقیم در دسترس است.
+// پیش‌فرض صفحه گزارش پیشرفته: گزارش روزانه امروز
 if (!isset($_GET['type']) && !isset($_GET['date'])) {
-    redirect('student/reports.php?type=weekly&date=' . week_saturday());
+    redirect('student/reports.php?type=daily&date=' . date('Y-m-d'));
 }
-$type = in_array($_GET['type'] ?? 'weekly', ['daily','weekly','monthly'], true) ? $_GET['type'] : 'weekly';
-$date = (string)($_GET['date'] ?? week_saturday());
+$type = in_array($_GET['type'] ?? 'daily', ['daily','weekly','monthly'], true) ? $_GET['type'] : 'daily';
+$date = (string)($_GET['date'] ?? ($type === 'weekly' ? week_saturday() : date('Y-m-d')));
 [$start,$end] = report_period($type,$date);
-// گزارش روزانه فقط تا پایان همان روز (ساعت ۰۰:۰۰) باز است — بعدش قفل!
-$isLocked = ($type === 'daily' && $start < date('Y-m-d'));
+// همه گزارش‌ها ساعت ۲۴ ددلاین خود قفل می‌شوند: روزانه همان شب، هفتگی پایان جمعه، ماهانه پایان آخرین روز ماه شمسی.
+$isLocked = report_deadline_passed($type, $start, $end);
 try {
     $report = report_get_or_create((int)$u['id'],$type,$start);
 } catch (Throwable $e) {
@@ -26,6 +25,8 @@ try {
     flash('error','گزارش‌ها فعلاً آماده نیستند. لطفاً کمی بعد دوباره تلاش کن.');
     redirect('student/progress.php');
 }
+$canSubmitNow = report_can_submit_now((int)$u['id'], $type, $start);
+$formDisabled = $isLocked || !$canSubmitNow;
 $snap = $report['snapshot'] ?? [];
 $adv = $report['advanced'] ?? [];
 $snap += ['progress_percent'=>0,'full'=>0,'partial'=>0,'missed'=>0,'study_hours'=>0,'tests_done'=>0,'target_tests'=>0,'extra_tests'=>0,'by_subject'=>[]];
@@ -143,7 +144,12 @@ panel_start('گزارش‌دهی پیشرفته', report_type_label($type).' · 
   <?php if($isLocked): ?>
     <div class="alert alert-error" style="margin: 16px 0; background: rgba(220, 53, 69, 0.1); border: 1px solid rgba(220, 53, 69, 0.2); color: #ea868f; padding: 12px 16px; border-radius: 12px; display: flex; align-items: center; gap: 10px;">
       <?= icon('lock', 20) ?>
-      <span style="font-weight: bold; font-size: 13.5px;">⚠️ این گزارش قفل شده است! شما فقط تا پایان هر روز فرصت دارید گزارش روزانه همان روز را ثبت یا ویرایش کنید.</span>
+      <span style="font-weight: bold; font-size: 13.5px;">⚠️ این گزارش قفل شده است! مهلت ثبت روزانه، هفتگی و ماهانه فقط تا ساعت ۲۴ ددلاین همان گزارش است.</span>
+    </div>
+  <?php elseif(!$canSubmitNow): ?>
+    <div class="alert alert-info" style="margin: 16px 0; background: rgba(203,172,128,.1); border: 1px solid rgba(203,172,128,.22); color: var(--gold-light); padding: 12px 16px; border-radius: 12px; display: flex; align-items: center; gap: 10px;">
+      <?= icon('info', 20) ?>
+      <span style="font-weight: bold; font-size: 13.5px;">این گزارش هنوز باز نشده است؛ روزانه بعد از تعیین وضعیت همه تسک‌ها یا بین ۲۳ تا ۲۴، هفتگی جمعه بعد از گزارش روزانه، و ماهانه آخر ماه بعد از گزارش روزانه فعال می‌شود.</span>
     </div>
   <?php endif; ?>
   <div class="form-grid">
@@ -187,7 +193,7 @@ panel_start('گزارش‌دهی پیشرفته', report_type_label($type).' · 
 </form>
 <script>
 window.API_REPORTS='<?= url('api/reports.php') ?>';
-<?php if($isLocked): ?>
+<?php if($formDisabled): ?>
 document.addEventListener('DOMContentLoaded', () => {
   const form = document.getElementById('reportForm');
   if (form) {
@@ -200,12 +206,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
 document.getElementById('reportForm')?.addEventListener('submit', async (e)=>{
   e.preventDefault();
-  <?php if($isLocked): ?>
-  toast('این گزارش قفل شده است و امکان ارسال یا تغییر ندارد.','error');
+  <?php if($formDisabled): ?>
+  toast('این گزارش فعلاً قابل ارسال نیست یا قفل شده است.','error');
   return;
   <?php endif; ?>
   const fd=new FormData(e.currentTarget), advanced={}; fd.forEach((v,k)=>advanced[k]=v);
-  try{ await api(window.API_REPORTS,{method:'POST',body:{action:'submit',report_type:'<?= $type ?>',date:'<?= $start ?>',advanced}}); toast('گزارش با موفقیت ثبت شد','success'); setTimeout(()=>location.reload(),700); }
+  try{
+    const res = await api(window.API_REPORTS,{method:'POST',body:{action:'submit',report_type:'<?= $type ?>',date:'<?= $start ?>',advanced}});
+    if (res.next_report && res.next_report.url) {
+      toast(res.next_report.message || 'گزارش بعدی آماده است','success',1800);
+      setTimeout(()=>{ location.href = res.next_report.url; }, 900);
+    } else {
+      toast('گزارش با موفقیت ثبت شد','success');
+      setTimeout(()=>location.reload(),700);
+    }
+  }
   catch(err){ toast(err.error||'خطا در ثبت گزارش','error'); }
 });
 </script>

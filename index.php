@@ -122,7 +122,7 @@ page_head('', '', ['landing.css']);
     </ul>
     <div class="flex gap-2" style="align-items:center">
       <a href="<?= url('auth/login.php') ?>" class="btn btn-ghost btn-sm"><?= icon('login',16) ?> ورود</a>
-      <a href="<?= url('auth/register.php') ?>" class="btn btn-gold btn-sm">ثبت‌نام دانش‌آموز</a>
+      <a href="<?= url('auth/register.php') ?>" class="btn btn-gold btn-sm">ثبت‌نام</a>
       <button class="nav-toggle btn btn-icon btn-ghost" aria-label="منو"><?= icon('menu') ?></button>
     </div>
   </div>
@@ -312,7 +312,12 @@ page_head('', '', ['landing.css']);
     </div>
     <div class="footer-bottom">
       <span>© <?= fa_num(date('Y')) ?> · <?= e(APP_OWNER) ?> — همه‌ی حقوق محفوظ است.</span>
-      <span class="flex gap-2"><span class="tech-tag" style="padding:5px 12px;font-size:.74rem">نسخه <?= fa_num(APP_VERSION) ?></span></span>
+      <span class="flex gap-2" style="align-items:center;flex-wrap:wrap;justify-content:flex-end">
+        <a href="https://webmania.ir" target="_blank" rel="noopener" title="Web Mania" style="font-size:.66rem;line-height:1.7;opacity:.48;color:inherit;text-decoration:none;font-weight:500">
+          طراحی و توسعه توسط تیم وب مانیا · Design &amp; Development by Web Mania
+        </a>
+        <span class="tech-tag" style="padding:5px 12px;font-size:.74rem">نسخه <?= fa_num(APP_VERSION) ?></span>
+      </span>
     </div>
   </div>
 </footer>

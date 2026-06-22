@@ -1,5 +1,5 @@
 /* مَدار Service Worker — network-first برای CSS/JS و صفحات، cache-first برای عکس/فونت */
-const VERSION = 'madar-v5';
+const VERSION = 'madar-v6';
 const STATIC_CACHE = 'static-' + VERSION;
 const PAGE_CACHE = 'pages-' + VERSION;
 

@@ -13,7 +13,8 @@ $maxBar = max(1, max(array_map(fn($c)=>max((float)$c['total'], (float)$c['done']
 
 // آمار کلی همه‌ی هفته‌ها
 $scoreSql = task_score_sql('t');
-$allTime = db()->prepare("SELECT COUNT(*) total, COALESCE(SUM($scoreSql),0) done, SUM(completion_status='full') full_count, SUM(completion_status='partial') partial_count, SUM(completion_status='missed') missed_count FROM tasks t WHERE student_id=?");
+$effective = task_effective_condition_sql('t','p','usr');
+$allTime = db()->prepare("SELECT COUNT(*) total, COALESCE(SUM($scoreSql),0) done, SUM(t.completion_status='full') full_count, SUM(t.completion_status='partial') partial_count, SUM(t.completion_status='missed') missed_count FROM tasks t JOIN plans p ON p.id=t.plan_id JOIN users usr ON usr.id=t.student_id WHERE t.student_id=? AND $effective");
 $allTime->execute([$u['id']]);
 $at = $allTime->fetch();
 $atPct = (int)$at['total'] ? round(((float)$at['done'])/(int)$at['total']*100) : 0;

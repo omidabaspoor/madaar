@@ -73,6 +73,9 @@ function synchronize_database_schema(PDO $pdo, array &$messages): void {
 
     // 3. همگام‌سازی ستون‌ها (Self-Healing)
     $tableColumns = [
+        'plans' => [
+            'published_at' => "DATETIME DEFAULT NULL AFTER status",
+        ],
         'tasks' => [
             'source'            => "VARCHAR(120) DEFAULT NULL AFTER description",
             'completion_status' => "ENUM('pending','full','partial','missed') NOT NULL DEFAULT 'pending' AFTER is_done",
@@ -81,7 +84,8 @@ function synchronize_database_schema(PDO $pdo, array &$messages): void {
             'status_updated_at' => "DATETIME DEFAULT NULL AFTER completed_at",
         ],
         'users' => [
-            'mood'            => "VARCHAR(20) DEFAULT NULL AFTER status",
+            'activated_at'    => "DATETIME DEFAULT NULL AFTER status",
+            'mood'            => "VARCHAR(20) DEFAULT NULL AFTER activated_at",
             'mood_date'       => "DATE DEFAULT NULL AFTER mood",
             'streak'          => "INT UNSIGNED NOT NULL DEFAULT 0 AFTER mood_date",
             'last_active'     => "DATE DEFAULT NULL AFTER streak",
@@ -187,6 +191,7 @@ if ($run) {
         'sql/upgrade_riazi_jame_chapters.sql'    => 'درس و فصل‌های ریاضی جامع',
         'sql/upgrade_multi_advisor_logs.sql'     => 'سیستم چندمشاوری + لاگ فعالیت',
         'sql/upgrade_advisor_access.sql'         => 'کنترل دسترسی مشاوران',
+        'sql/upgrade_web_push_subscriptions.sql' => 'اعلان واقعی Web Push',
     ];
     foreach ($upgradeFiles as $file => $label) {
         $path = __DIR__ . '/' . $file;
