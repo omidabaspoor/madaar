@@ -1,0 +1,25 @@
+# مَدار · Madar Study OS — robots.txt
+User-agent: *
+
+# صفحات عمومی — مجاز
+Allow: /$
+Allow: /index.php
+Allow: /assets/img/
+Allow: /assets/icons/
+Allow: /assets/css/
+Allow: /assets/js/
+
+# بخش‌های اختصاصی — غیرمجاز
+Disallow: /admin/
+Disallow: /student/
+Disallow: /api/
+Disallow: /auth/
+Disallow: /config/
+Disallow: /includes/
+Disallow: /install.php
+Disallow: /uploads/
+Disallow: /sql/
+
+# نقشه سایت
+Sitemap: https://madaar-edu.ir/sitemap.xml
+Sitemap: https://madaar-edu.ir/sitemap.php

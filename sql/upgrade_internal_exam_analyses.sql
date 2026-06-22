@@ -1,0 +1,22 @@
+CREATE TABLE IF NOT EXISTS internal_exam_analyses (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  attempt_id INT UNSIGNED NOT NULL,
+  exam_id INT UNSIGNED NOT NULL,
+  student_id INT UNSIGNED NOT NULL,
+  advisor_id INT UNSIGNED DEFAULT NULL,
+  behavior_json LONGTEXT NULL,
+  analysis_json LONGTEXT NULL,
+  student_note TEXT NULL,
+  advisor_note TEXT NULL,
+  status ENUM('draft','submitted') NOT NULL DEFAULT 'submitted',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_internal_attempt (attempt_id),
+  KEY idx_student (student_id),
+  KEY idx_advisor (advisor_id),
+  KEY idx_exam (exam_id),
+  CONSTRAINT fk_internal_attempt FOREIGN KEY (attempt_id) REFERENCES exam_attempts(id) ON DELETE CASCADE,
+  CONSTRAINT fk_internal_exam FOREIGN KEY (exam_id) REFERENCES exams(id) ON DELETE CASCADE,
+  CONSTRAINT fk_internal_student FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
