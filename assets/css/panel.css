@@ -1,0 +1,207 @@
+/* =============== Dashboard / Panel layout =============== */
+.app-shell { display:grid; grid-template-columns: 256px 1fr; min-height:100vh; }
+.app-main { min-width:0; overflow-x:hidden; }
+
+/* ---- sidebar ---- */
+.sidebar {
+  position: sticky; top:0; height:100vh; overflow-y:auto;
+  background: linear-gradient(180deg, var(--surface), var(--bg-2));
+  border-left: 1px solid var(--border-soft); padding: 22px 16px; display:flex; flex-direction:column;
+}
+.sidebar .brand { padding: 0 8px 22px; }
+.side-nav { display:flex; flex-direction:column; gap:4px; flex:1; }
+.side-nav .label { font-size:.72rem; color: var(--text-faint); font-weight:700; letter-spacing:.08em; padding: 16px 12px 8px; }
+.side-link {
+  display:flex; align-items:center; gap:12px; padding: 11px 13px; border-radius: var(--r-sm);
+  color: var(--text-2); font-weight:600; font-size:.94rem; transition:.2s var(--ease); position:relative;
+}
+.side-link:hover { background: var(--surface-2); color: var(--text); }
+.side-link.active { background: var(--sage-glass); color: var(--sage-light); }
+.side-link.active::before { content:''; position:absolute; right:-16px; top:50%; transform:translateY(-50%); width:4px; height:22px; border-radius:3px; background: var(--grad-gold); }
+.side-link .badge-count { margin-right:auto; background: var(--gold); color:#1a1206; font-size:.7rem; padding:1px 8px; border-radius:999px; font-weight:800; }
+.side-foot { padding-top: 14px; border-top:1px solid var(--border-soft); }
+.side-user { display:flex; align-items:center; gap:11px; padding: 10px 12px; border-radius: var(--r-sm); }
+.side-user .ava { width:38px; height:38px; border-radius:50%; background: var(--grad-sage); display:grid; place-items:center; font-weight:800; color:#0c1512; flex-shrink:0; }
+.side-user .nm { font-weight:700; font-size:.88rem; }
+.side-user .rl { font-size:.74rem; color: var(--text-3); }
+
+/* ---- topbar ---- */
+.topbar {
+  position: sticky; top:0; z-index:50; height: 66px; display:flex; align-items:center; justify-content:space-between;
+  gap:12px; padding: 0 26px; background: rgba(12,21,18,.8); backdrop-filter: blur(14px); border-bottom:1px solid var(--border-soft);
+}
+.topbar .tb-title { min-width:0; }
+.topbar .tb-title h1 { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.topbar .tb-title h1 { font-size:1.25rem; }
+.topbar .tb-title p { font-size:.8rem; color: var(--text-3); }
+.tb-actions { display:flex; align-items:center; gap:10px; }
+.tb-btn { width:42px; height:42px; border-radius:13px; background:var(--surface-2); border:1px solid var(--border-soft); color:var(--text-2); display:grid; place-items:center; transition:.2s; position:relative; }
+.tb-btn:hover { color:var(--text); border-color:var(--border); }
+.tb-btn .dot { position:absolute; top:8px; left:9px; width:9px; height:9px; background:var(--gold); border-radius:50%; border:2px solid var(--bg); }
+
+.content { padding: 26px; max-width: 1400px; }
+.page-title { margin-bottom: 22px; }
+
+/* mobile menu */
+.mobile-bar { display:none; }
+/* دکمه منوی موبایل: همان ابعاد tb-btn و مرکز کامل آیکون */
+.tb-btn.mobile-bar { flex-shrink:0; }
+.tb-btn.mobile-bar svg { display:block; }
+.sidebar-overlay { display:none; }
+
+/* ---- stat cards ---- */
+.stat-cards { display:grid; grid-template-columns: repeat(4,1fr); gap:16px; margin-bottom:24px; }
+.stat { display:flex; align-items:center; gap:14px; }
+.stat .icon-tile { width:52px; height:52px; border-radius:15px; }
+.stat .v { font-size:1.7rem; font-weight:800; line-height:1.1; }
+.stat .k { font-size:.84rem; color:var(--text-3); }
+.stat .trend { font-size:.74rem; font-weight:700; margin-top:2px; }
+.trend.up { color: var(--success); } .trend.down { color: var(--danger); }
+
+/* ---- panel grid ---- */
+.panel-grid { display:grid; gap:18px; }
+.cols-2 { grid-template-columns: 1.6fr 1fr; }
+.cols-3 { grid-template-columns: repeat(3,1fr); }
+
+.panel { background: var(--card); border:1px solid var(--border-soft); border-radius:var(--r-lg); padding:20px; }
+.panel-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
+.panel-head h3 { font-size:1.08rem; }
+
+/* ---- table ---- */
+.tbl { width:100%; border-collapse: collapse; }
+.tbl th { text-align:right; font-size:.8rem; color:var(--text-3); font-weight:700; padding:10px 12px; border-bottom:1px solid var(--border-soft); }
+.tbl td { padding:13px 12px; border-bottom:1px solid var(--border-soft); font-size:.9rem; vertical-align:middle; }
+.tbl tr:last-child td { border-bottom:none; }
+.tbl tr:hover td { background: var(--surface); }
+.u-row { display:flex; align-items:center; gap:11px; }
+.u-ava { width:38px; height:38px; border-radius:50%; background:var(--grad-sage); display:grid; place-items:center; font-weight:800; color:#0c1512; font-size:.85rem; flex-shrink:0; }
+.u-ava.gold { background: var(--grad-gold); }
+
+/* ---- student list (cards) ---- */
+.student-grid { display:grid; grid-template-columns: repeat(auto-fill,minmax(240px,1fr)); gap:16px; }
+.student-card { display:flex; flex-direction:column; gap:14px; position:relative; overflow:visible; }
+.sc-top { display:flex; align-items:center; gap:12px; }
+.sc-meta { display:flex; gap:8px; flex-wrap:wrap; }
+.sc-actions { display:flex; gap:8px; align-items:center; }
+.sc-menu { position:relative; }
+/* وقتی منو باز است کل کارت بالاتر می‌آید تا dropdown روی کارت‌های دیگر بیفتد */
+.student-card.menu-open { z-index:80; }
+.sc-dropdown {
+  position:absolute; left:0; top:calc(100% + 8px); z-index:90; min-width:178px; padding:8px;
+  background:linear-gradient(160deg,var(--surface-2),var(--surface)); border:1px solid var(--border);
+  border-radius:var(--r-md); box-shadow:var(--sh-lg); display:flex; flex-direction:column; gap:2px;
+  animation:fadeUp .2s var(--ease);
+}
+.sc-dropdown.up { top:auto; bottom:calc(100% + 8px); }
+.sc-dropdown.hidden { display:none; }
+.sc-dropdown .side-link { padding:9px 11px; font-size:.86rem; cursor:pointer; }
+.sc-dropdown .side-link:hover { background:var(--surface-3); }
+.sc-dropdown form { margin:0; }
+
+/* ---- bars chart (css) ---- */
+.barchart { display:flex; align-items:flex-end; gap:10px; height:140px; padding-top:10px; }
+.barchart .bcol { flex:1; display:flex; flex-direction:column; align-items:center; gap:7px; height:100%; justify-content:flex-end; }
+.barchart .bar { width:100%; max-width:34px; border-radius:8px 8px 4px 4px; background: var(--grad-sage); transition: height 1s var(--ease); min-height:4px; }
+.barchart .bar.gold { background: var(--grad-gold); }
+.barchart .blbl { font-size:.72rem; color:var(--text-3); }
+
+/* line chart svg */
+.linechart svg { width:100%; height:auto; }
+
+@media (max-width: 1080px) { .stat-cards { grid-template-columns: repeat(2,1fr); } .cols-2,.cols-3 { grid-template-columns:1fr; } }
+@media (max-width: 860px) {
+  .app-shell { grid-template-columns: 1fr; }
+  .sidebar { position:fixed; right:0; top:0; width:270px; z-index:200; transform: translateX(105%); transition:.3s var(--ease); }
+  .sidebar.open { transform:none; box-shadow: var(--sh-lg); }
+  .sidebar-overlay { display:block; position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:150; opacity:0; visibility:hidden; transition:.3s; }
+  .sidebar-overlay.open { opacity:1; visibility:visible; }
+  .mobile-bar { display:grid !important; place-items:center; }
+  .topbar { padding: 0 16px; height:60px; }
+  .topbar .tb-title h1 { font-size:1.1rem; }
+  .topbar .tb-title p { font-size:.72rem; }
+  .tb-actions { gap:7px; }
+  .content { padding:18px; }
+}
+@media (max-width: 600px) {
+  /* در موبایل dropdown به‌صورت شیت پایین صفحه نمایش داده می‌شود تا همیشه دیده شود */
+  .sc-dropdown {
+    position:fixed; left:12px; right:12px; bottom:12px; top:auto; min-width:0; z-index:300;
+    border-radius:var(--r-lg); padding:10px; animation:fadeUp .25s var(--ease);
+  }
+  .sc-dropdown.up { top:auto; bottom:12px; }
+  .sc-dropdown .side-link { padding:13px 14px; font-size:.95rem; }
+  /* پس‌زمینه تیره پشت شیت */
+  .student-card.menu-open::after {
+    content:''; position:fixed; inset:0; background:rgba(6,11,9,.55); z-index:299;
+  }
+}
+/* ============ Bottom navigation (mobile only) ============ */
+.bottom-nav { display:none; }
+@media (max-width: 860px) {
+  .bottom-nav {
+    display:flex; position:fixed; bottom:12px; left:12px; right:12px; z-index:999; height:68px;
+    background:rgba(12,21,18,.88); backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
+    border:1px solid rgba(178,148,95,.25); border-radius:22px;
+    padding:6px 10px; justify-content:space-around; align-items:center;
+    box-shadow:0 16px 40px rgba(0,0,0,.6);
+  }
+  .bn-item {
+    flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
+    color:var(--text-3); border-radius:16px; transition:all .25s ease; position:relative; padding:6px 2px;
+    height:100%;
+  }
+  .bn-item .bn-ico { position:relative; display:grid; place-items:center; transition:all .25s ease; width:38px; height:38px; border-radius:12px; }
+  .bn-item .bn-lbl { font-size:.65rem; font-weight:800; opacity:.8; transition:all .25s ease; }
+  .bn-item.active { color:var(--gold-light); }
+  .bn-item.active .bn-ico { 
+    background:linear-gradient(135deg, rgba(224,197,149,0.15), rgba(178,148,95,0.05));
+    border:1px solid rgba(178,148,95,0.3);
+    color:var(--gold-light);
+    transform:translateY(-4px);
+    box-shadow:0 4px 12px rgba(178,148,95,0.15);
+  }
+  .bn-item.active .bn-lbl { opacity:1; font-weight:900; color:var(--gold-light); transform:translateY(-2px); }
+  .bn-dot { position:absolute; top:2px; left:2px; width:8px; height:8px; border-radius:50%; background:var(--gold); border:2px solid var(--bg); }
+  /* فضای پایین برای محتوا تا زیر نوار نرود */
+  .content { padding-bottom: 96px !important; }
+}
+@media (max-width: 520px) {
+  /* کارت‌های آمار ۲ ستونه و فشرده */
+  .stat-cards { grid-template-columns:1fr 1fr; gap:10px; }
+  .stat { flex-direction:column; align-items:flex-start; gap:8px; text-align:right; }
+  .stat .icon-tile { width:40px; height:40px; border-radius:12px; }
+  .stat .v { font-size:1.5rem; }
+  .stat .k { font-size:.76rem; }
+  .panel { padding:15px; }
+}
+
+/* ============================================================
+   Mobile polish pass — student/admin panels stay readable and tappable
+   ============================================================ */
+@media (max-width:860px){
+  .app-main{ width:100%; }
+  .content{ width:100%; max-width:100%; padding:14px 12px 92px !important; overflow-x:hidden; }
+  .topbar{ padding:0 12px; gap:8px; }
+  .topbar .tb-title h1{ font-size:1rem; max-width:48vw; }
+  .topbar .tb-title p{ display:none; }
+  .tb-actions .badge{ display:none; }
+  .tb-btn{ width:40px; height:40px; border-radius:12px; }
+  .panel{ border-radius:18px; }
+  .tbl{ display:block; width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .tbl thead,.tbl tbody,.tbl tr{ min-width:640px; }
+  .student-grid,.exam-grid{ grid-template-columns:1fr !important; }
+  .bottom-nav{ height:66px; }
+}
+@media (max-width:420px){
+  .content{ padding-left:10px !important; padding-right:10px !important; }
+  .panel{ padding:14px; border-radius:16px; }
+  .stat-cards{ grid-template-columns:1fr 1fr; gap:9px; }
+  .stat .v{ font-size:1.32rem; }
+  .bn-item .bn-lbl{ font-size:.61rem; }
+}
+
+/* ============================================================
+   Panel shell polish pass — cleaner admin/student workspace
+   ============================================================ */
+.app-shell{background:radial-gradient(900px 520px at 78% -12%,rgba(203,172,128,.075),transparent 55%),var(--bg)}
+.sidebar{box-shadow:-12px 0 36px rgba(0,0,0,.14);scrollbar-width:thin}.sidebar .brand{border-bottom:1px solid var(--border-soft);margin-bottom:8px}.side-nav .label{margin-top:8px}.side-link svg{opacity:.9;flex-shrink:0}.side-link.active{box-shadow:inset 0 0 0 1px rgba(107,136,114,.16)}.side-foot{margin-top:12px}.content{display:flex;flex-direction:column;gap:18px}.content>.panel:first-child,.content>.between:first-child{margin-top:0}.student-grid,.exam-grid{gap:18px}.student-card,.exam-card{min-height:0}.sc-actions,.flex.gap-2.mt-4{row-gap:8px}.panel .panel{box-shadow:none}@media(min-width:861px){.app-main{display:flex;flex-direction:column}.content{flex:1}.sidebar{width:256px}.topbar{padding-inline:28px}}@media(max-width:860px){.sidebar{padding-bottom:90px}.side-link{min-height:46px}.content{gap:14px}.bottom-nav{box-shadow:0 -12px 30px rgba(0,0,0,.28)}.bn-item{min-width:0}.bn-item .bn-lbl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}}

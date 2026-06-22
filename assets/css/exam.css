@@ -1,0 +1,494 @@
+/* =================================================================
+   Exam-taking environment — focused, mobile-first, stable
+   ================================================================= */
+.exam-env { min-height:100vh; min-height:100dvh; display:flex; flex-direction:column; background:var(--bg); }
+
+/* top bar */
+.exam-bar {
+  position:sticky; top:0; z-index:40; display:flex; align-items:center; gap:12px;
+  padding:12px 16px; background:rgba(12,21,18,.92); backdrop-filter:blur(14px); border-bottom:1px solid var(--border);
+}
+.exam-bar-info { flex:1; min-width:0; }
+.eb-title { font-weight:800; font-size:.98rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.eb-sub { font-size:.74rem; color:var(--text-3); }
+.exam-timer { display:flex; align-items:center; gap:6px; padding:7px 13px; border-radius:var(--r-pill); background:var(--surface-2); border:1px solid var(--border); font-weight:800; font-variant-numeric:tabular-nums; font-size:.95rem; }
+.exam-timer.warning { background:rgba(217,178,95,.16); border-color:var(--warn); color:var(--warn); }
+.exam-timer.danger { background:rgba(217,116,116,.16); border-color:var(--danger); color:var(--danger); animation:pulse 1.2s infinite; }
+
+/* main */
+.exam-main { flex:1; display:flex; flex-direction:column; max-width:760px; width:100%; margin:0 auto; padding:18px 16px 0; }
+.exam-questions { flex:1; }
+.exam-q { display:none; animation:fadeUp .3s var(--ease); }
+.exam-q.active { display:block; }
+
+.eq-head { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+.eq-sec { padding:4px 12px; border-radius:var(--r-pill); background:var(--sage-glass); color:var(--sage-light); font-size:.78rem; font-weight:700; }
+.eq-num { font-size:.8rem; color:var(--text-3); margin-right:auto; }
+.eq-flag { width:36px; height:36px; border-radius:11px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-3); display:grid; place-items:center; cursor:pointer; transition:.2s; }
+.eq-flag.on { background:rgba(217,178,95,.18); border-color:var(--warn); color:var(--warn); }
+
+.eq-image { margin-bottom:14px; text-align:center; }
+.eq-image img { max-width:100%; max-height:320px; border-radius:var(--r-md); border:1px solid var(--border); }
+.eq-text { font-size:1.08rem; font-weight:600; line-height:2; margin-bottom:18px; }
+
+.eq-options { display:flex; flex-direction:column; gap:11px; }
+.eq-opt {
+  display:flex; align-items:center; gap:13px; padding:15px 16px; border-radius:var(--r-md);
+  background:var(--card); border:1.5px solid var(--border-soft); cursor:pointer; transition:.18s var(--ease); text-align:right; width:100%;
+  color:var(--text); font-family:inherit;
+}
+.eq-opt:hover { border-color:var(--border); }
+.eq-opt:active { transform:scale(.99); }
+.eqo-marker { width:34px; height:34px; border-radius:10px; background:var(--surface-3); display:grid; place-items:center; font-weight:800; font-size:.95rem; flex-shrink:0; transition:.18s; }
+.eqo-text { font-size:1rem; line-height:1.7; color:var(--text); }
+.eq-opt.selected { border-color:var(--sage); background:var(--sage-glass); color:var(--text); }
+.eq-opt.selected .eqo-marker { background:var(--grad-sage); color:#0c1512; }
+.eq-clear { margin-top:14px; background:none; border:none; color:var(--text-3); font-size:.82rem; cursor:pointer; display:inline-flex; gap:5px; align-items:center; }
+.eq-clear:hover { color:var(--danger); }
+
+/* nav */
+.exam-nav { position:sticky; bottom:0; display:flex; gap:10px; align-items:center; padding:14px 0 calc(14px + env(safe-area-inset-bottom)); background:linear-gradient(transparent,var(--bg) 30%); }
+.exam-nav .btn { flex:1; }
+.exam-nav #gridToggle { flex:0 0 auto; }
+
+/* question grid drawer */
+.qgrid-overlay { position:fixed; inset:0; background:rgba(6,11,9,.6); backdrop-filter:blur(4px); z-index:60; opacity:0; visibility:hidden; transition:.3s; }
+.qgrid-overlay.open { opacity:1; visibility:visible; }
+.qgrid-panel {
+  position:fixed; top:0; bottom:0; left:0; width:320px; max-width:88vw; z-index:70; padding:18px;
+  background:linear-gradient(180deg,var(--surface),var(--bg-2)); border-left:1px solid var(--border);
+  transform:translateX(-105%); transition:.3s var(--ease); display:flex; flex-direction:column;
+}
+.qgrid-panel.open { transform:none; box-shadow:var(--sh-lg); }
+.qgrid-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+.qgrid-legend { display:flex; gap:14px; flex-wrap:wrap; font-size:.74rem; color:var(--text-3); margin-bottom:14px; }
+.qgrid-legend .lg { display:inline-block; width:12px; height:12px; border-radius:4px; margin-left:4px; vertical-align:middle; }
+.qgrid-legend .lg.answered { background:var(--sage); }
+.qgrid-legend .lg.flagged { background:var(--warn); }
+.qgrid-legend .lg.blank { background:var(--surface-3); }
+.qgrid-scroll { flex:1; overflow-y:auto; }
+.qgrid-sec-title { font-size:.8rem; font-weight:700; color:var(--gold-light); margin:14px 0 8px; }
+.qgrid { display:grid; grid-template-columns:repeat(6,1fr); gap:7px; }
+.qg-cell { aspect-ratio:1; border-radius:9px; background:var(--surface-3); border:1.5px solid transparent; color:var(--text-2); font-weight:700; font-size:.82rem; cursor:pointer; transition:.15s; }
+.qg-cell:hover { border-color:var(--sage); }
+.qg-cell.answered { background:var(--sage-glass); color:var(--sage-light); border-color:var(--sage); }
+.qg-cell.flagged { box-shadow:inset 0 0 0 2px var(--warn); }
+.qg-cell.current { background:var(--grad-gold); color:#1a1206; border-color:var(--gold); }
+
+/* submit summary */
+.submit-summary { display:flex; gap:10px; }
+.submit-summary .ss-item { flex:1; text-align:center; padding:14px 8px; background:var(--surface); border:1px solid var(--border-soft); border-radius:var(--r-md); }
+.submit-summary .v { display:block; font-weight:800; font-size:1.4rem; }
+.submit-summary .k { font-size:.74rem; color:var(--text-3); }
+
+@media (min-width:761px){
+  .qgrid-panel { left:auto; right:0; border-left:none; border-right:1px solid var(--border); transform:translateX(105%); }
+  .qgrid-panel.open { transform:none; }
+}
+@media (max-width:600px){
+  .eq-text { font-size:1.02rem; }
+  .eqo-text { font-size:.95rem; }
+  .qgrid { grid-template-columns:repeat(5,1fr); }
+}
+
+/* ============================================================
+   Samurai image exam — rebuilt viewer, larger answer sheet, mobile-first
+   ============================================================ */
+.exam-samurai-layout{
+  grid-template-columns:minmax(520px,1.25fr) minmax(390px,.85fr) !important;
+  gap:18px !important;
+  height:calc(100dvh - 74px) !important;
+  padding:16px !important;
+}
+.booklet-viewer-panel,
+.bubble-sheet-panel{
+  min-width:0;
+  box-shadow:0 18px 55px rgba(0,0,0,.28);
+}
+.booklet-scroll-area{
+  touch-action:none;
+  overscroll-behavior:contain;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(203,172,128,.10), transparent 30%),
+    #050907 !important;
+}
+.booklet-scroll-area.dragging{ cursor:grabbing !important; }
+#bookletImg{
+  position:absolute !important;
+  top:50% !important;
+  left:50% !important;
+  max-width:none !important;
+  max-height:none !important;
+  will-change:transform;
+  user-select:none;
+  -webkit-user-drag:none;
+  touch-action:none;
+  border:1px solid rgba(255,255,255,.08);
+  background:#fff;
+}
+.booklet-toolbar{ gap:10px; }
+.booklet-pages-nav .btn,
+.booklet-toolbar .btn{ min-height:32px; }
+.bubble-rows-container{ gap:10px !important; }
+.bubble-row-item{
+  padding:12px 18px !important;
+  border-radius:16px !important;
+  background:linear-gradient(135deg, rgba(255,255,255,.035), var(--surface-2)) !important;
+}
+.bubble-row-item:hover{ border-color:rgba(203,172,128,.34) !important; }
+.bubble-opt-btn{
+  width:42px !important;
+  height:42px !important;
+  font-size:1rem !important;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.02);
+}
+.q-bookmark-btn,.q-clear-btn{ width:38px !important; height:38px !important; }
+
+@media (max-width:980px){
+  .exam-env{ overflow-x:hidden; }
+  .exam-bar{
+    position:sticky; top:0; z-index:80; padding:10px 12px !important; align-items:stretch !important;
+  }
+  .exam-bar-info{ width:100%; }
+  .exam-bar .btn-lg{ min-height:42px; padding:0 14px !important; font-size:.88rem; }
+  .exam-samurai-layout{
+    display:flex !important;
+    flex-direction:column;
+    height:auto !important;
+    min-height:calc(100dvh - 64px) !important;
+    padding:10px !important;
+    gap:12px !important;
+  }
+  .booklet-viewer-panel{
+    height:52dvh !important;
+    min-height:360px !important;
+    max-height:none !important;
+  }
+  .bubble-sheet-panel{
+    min-height:46dvh !important;
+  }
+  .booklet-toolbar,
+  .bubble-sheet-panel .panel-head{
+    padding:9px 10px !important;
+    gap:8px !important;
+  }
+  .booklet-toolbar .muted{ display:none; }
+  .bubble-rows-container{ padding:12px !important; }
+  .bubble-row-item{
+    padding:10px 12px !important;
+    gap:10px !important;
+  }
+  .bubble-opt-btn{ width:40px !important; height:40px !important; }
+}
+@media (max-width:520px){
+  .exam-bar{ gap:8px !important; }
+  .eb-title{ font-size:.95rem !important; max-width:52vw; }
+  .exam-timer{ padding:6px 10px !important; font-size:.9rem !important; }
+  .booklet-viewer-panel{ height:48dvh !important; min-height:315px !important; }
+  .bubble-sheet-panel{ min-height:48dvh !important; }
+  .bubble-row-item{ padding:9px 10px !important; }
+  .bubble-row-item [style*="width:40px"]{ width:34px !important; }
+  .bubble-options-group{ gap:6px !important; }
+  .bubble-opt-btn{ width:36px !important; height:36px !important; }
+  .q-bookmark-btn,.q-clear-btn{ width:34px !important; height:34px !important; }
+  .booklet-pages-nav{ width:100%; justify-content:center; }
+}
+#bookletImg{ transition:none !important; }
+
+/* PDF booklet support */
+.booklet-scroll-area.pdf-mode{
+  cursor:default !important;
+  padding:0 !important;
+  overflow:hidden !important;
+  background:#101411 !important;
+  touch-action:none;
+}
+.booklet-pdf-frame{
+  width:100%;
+  height:100%;
+  border:0;
+  background:#1b1b1b;
+  border-radius:0;
+}
+.booklet-pdf-fallback{
+  position:absolute;
+  right:14px;
+  bottom:14px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:8px 10px;
+  border-radius:14px;
+  background:rgba(6,10,8,.78);
+  backdrop-filter:blur(10px);
+  border:1px solid rgba(203,172,128,.28);
+  color:var(--text-2);
+  font-size:.78rem;
+  z-index:3;
+}
+.booklet-pdf-fallback.hidden{ display:none !important; }
+#imageZoomControls.hidden{ display:none !important; }
+@media(max-width:520px){
+  .booklet-pdf-fallback{ left:10px; right:10px; justify-content:space-between; }
+}
+
+/* PDF.js canvas mode: no browser PDF toolbar/download, drag/zoom/page navigation inside box */
+.booklet-pdf-canvas-wrap{
+  position:absolute;
+  inset:0;
+  overflow:hidden;
+  background:radial-gradient(circle at 20% 10%,rgba(203,172,128,.07),transparent 35%), #070a08;
+}
+#bookletPdfCanvas{
+  position:absolute;
+  left:50%;
+  top:50%;
+  border-radius:12px;
+  box-shadow:0 14px 42px rgba(0,0,0,.72);
+  background:#fff;
+  will-change:transform;
+  user-select:none;
+  touch-action:none;
+}
+.pdf-page-loading{
+  position:absolute;
+  inset:auto 14px 14px 14px;
+  z-index:4;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  padding:10px 12px;
+  border-radius:14px;
+  background:rgba(6,10,8,.82);
+  border:1px solid rgba(203,172,128,.26);
+  color:var(--gold-light);
+  font-weight:900;
+  backdrop-filter:blur(10px);
+}
+#pdfPageControls.hidden{display:none!important}
+#pdfPageControls .btn:disabled{opacity:.4;cursor:not-allowed}
+.booklet-pdf-frame{display:none!important}
+@media(max-width:980px){
+  #pdfPageControls{ order:5; }
+}
+
+/* Final spacious exam layout: prioritize booklet/file area, keep answer sheet comfortable */
+.exam-samurai-layout{
+  width:100% !important;
+  max-width:none !important;
+  height:calc(100dvh - 66px) !important;
+  padding:10px 12px !important;
+  gap:12px !important;
+  grid-template-columns:minmax(0,1fr) minmax(340px,390px) !important;
+  align-items:stretch !important;
+}
+.booklet-viewer-panel{ min-height:0 !important; }
+.bubble-sheet-panel{ min-height:0 !important; }
+.booklet-scroll-area{ min-height:0; }
+.bubble-rows-container{ padding:12px !important; gap:9px !important; }
+.bubble-row-item{ padding:9px 12px !important; }
+.bubble-opt-btn{ width:38px !important; height:38px !important; }
+@media(min-width:1400px){
+  .exam-samurai-layout{ grid-template-columns:minmax(0,1fr) 410px !important; padding:12px 16px !important; }
+  .bubble-opt-btn{ width:40px !important; height:40px !important; }
+}
+@media(max-width:980px){
+  .exam-samurai-layout{
+    display:flex !important;
+    flex-direction:column !important;
+    height:auto !important;
+    min-height:calc(100dvh - 60px) !important;
+    padding:8px !important;
+    gap:10px !important;
+  }
+  .booklet-viewer-panel{
+    height:62dvh !important;
+    min-height:430px !important;
+    max-height:none !important;
+    order:1;
+  }
+  .bubble-sheet-panel{
+    min-height:38dvh !important;
+    order:2;
+  }
+  .bubble-rows-container{ max-height:48dvh; }
+}
+@media(max-width:560px){
+  .booklet-viewer-panel{ height:60dvh !important; min-height:360px !important; }
+  .bubble-sheet-panel{ min-height:42dvh !important; }
+  .booklet-toolbar{ align-items:stretch !important; }
+  #imageZoomControls,#pdfPageControls,.booklet-pages-nav{ width:100%; justify-content:center; }
+  .bubble-rows-container{ padding:10px !important; gap:8px !important; }
+  .bubble-row-item{ padding:9px !important; gap:7px !important; }
+  .bubble-opt-btn{ width:34px !important; height:34px !important; }
+}
+@media(max-height:680px) and (max-width:980px){
+  .booklet-viewer-panel{ height:56dvh !important; min-height:300px !important; }
+  .bubble-sheet-panel{ min-height:44dvh !important; }
+}
+
+/* ============================================================
+   Mobile Samurai Exam UX — booklet/answer switcher for phones
+   ============================================================ */
+.mobile-exam-switch{ display:none; }
+@media(max-width:760px){
+  body:has(.exam-samurai-layout), body.samurai-exam-mobile{ overflow:hidden; }
+  .exam-env{ height:100dvh; overflow:hidden; }
+  .exam-bar{
+    position:relative !important;
+    z-index:90 !important;
+    padding:8px 10px !important;
+    gap:8px !important;
+    align-items:center !important;
+    background:rgba(12,21,18,.96) !important;
+  }
+  .exam-bar-info{ flex:1 1 100%; gap:7px !important; align-items:center !important; }
+  .exam-bar-info > a[href*="exam_pdf"]{ display:none !important; }
+  .exam-bar-info > a[href*="student/exams"]{ min-height:34px; padding:0 10px !important; font-size:.78rem; }
+  .eb-title{ order:3; width:100%; max-width:100% !important; font-size:.92rem !important; line-height:1.35; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--gold-light) !important; }
+  .eb-sub{ font-size:.72rem !important; padding:4px 8px !important; }
+  .exam-bar > .flex:last-child{ width:100%; justify-content:space-between; gap:8px !important; }
+  .exam-timer{ min-height:34px; padding:5px 10px !important; font-size:.88rem !important; }
+  #finishBtn{ min-height:38px; flex:1; padding:0 12px !important; font-size:.84rem; }
+
+  .mobile-exam-switch{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:8px;
+    position:relative;
+    z-index:85;
+    padding:8px 10px;
+    background:linear-gradient(180deg,rgba(12,21,18,.98),rgba(12,21,18,.88));
+    border-bottom:1px solid var(--border-soft);
+  }
+  .mobile-exam-switch button{
+    min-height:42px;
+    border:1px solid var(--border-soft);
+    border-radius:14px;
+    background:var(--surface-2);
+    color:var(--text-2);
+    font:inherit;
+    font-size:.86rem;
+    font-weight:1000;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:7px;
+  }
+  .mobile-exam-switch button.active{
+    background:linear-gradient(135deg,var(--gold-light),var(--gold));
+    border-color:var(--gold-light);
+    color:#171006;
+    box-shadow:0 8px 24px rgba(203,172,128,.18);
+  }
+
+  .exam-samurai-layout{
+    display:block !important;
+    height:calc(100dvh - 146px) !important;
+    min-height:0 !important;
+    padding:8px !important;
+    overflow:hidden !important;
+  }
+  .booklet-viewer-panel,
+  .bubble-sheet-panel{
+    height:100% !important;
+    min-height:0 !important;
+    max-height:none !important;
+    border-radius:18px !important;
+    overflow:hidden !important;
+    box-shadow:0 12px 38px rgba(0,0,0,.34) !important;
+  }
+  .exam-env.mobile-booklet-mode .booklet-viewer-panel{ display:flex !important; }
+  .exam-env.mobile-booklet-mode .bubble-sheet-panel{ display:none !important; }
+  .exam-env.mobile-answer-mode .booklet-viewer-panel{ display:none !important; }
+  .exam-env.mobile-answer-mode .bubble-sheet-panel{ display:flex !important; }
+
+  .booklet-toolbar{
+    flex:0 0 auto;
+    padding:8px !important;
+    gap:7px !important;
+    align-items:center !important;
+  }
+  #bookletTitleBadge{ font-size:.72rem !important; padding:5px 8px !important; }
+  #bookletHint{ display:none !important; }
+  #imageZoomControls,
+  #pdfPageControls,
+  .booklet-pages-nav{
+    width:auto !important;
+    flex:1 1 auto;
+    justify-content:center;
+    min-height:34px;
+  }
+  .booklet-pages-nav .select{ max-width:86px; }
+  #zoomLevelText{ width:40px !important; font-size:.78rem !important; }
+  .booklet-scroll-area{
+    flex:1 1 auto !important;
+    height:auto !important;
+    min-height:0 !important;
+    padding:0 !important;
+    background:#020403 !important;
+    touch-action:none !important;
+  }
+  #bookletImg{
+    border-radius:8px !important;
+    box-shadow:0 8px 26px rgba(0,0,0,.75) !important;
+  }
+  #bookletPdfCanvas{ border-radius:8px !important; }
+  .booklet-pdf-fallback{ left:10px !important; right:10px !important; bottom:10px !important; }
+
+  .bubble-sheet-panel .panel-head{
+    flex:0 0 auto;
+    padding:10px 12px !important;
+  }
+  .bubble-sheet-panel .panel-head b{ font-size:.95rem !important; }
+  .bubble-sheet-panel .panel-head .muted{ display:none; }
+  .bubble-rows-container{
+    flex:1 1 auto !important;
+    max-height:none !important;
+    padding:10px !important;
+    gap:9px !important;
+    direction:rtl !important;
+    overscroll-behavior:contain;
+  }
+  .bubble-row-item{
+    direction:ltr !important;
+    display:grid !important;
+    grid-template-columns:76px 1fr 38px !important;
+    align-items:center !important;
+    gap:8px !important;
+    padding:10px !important;
+    border-radius:16px !important;
+    background:linear-gradient(135deg,rgba(255,255,255,.035),var(--surface-2)) !important;
+  }
+  .bubble-row-item [style*="width:40px"]{ width:38px !important; font-size:.92rem !important; }
+  .bubble-options-group{
+    width:100%;
+    display:grid !important;
+    grid-template-columns:repeat(4,1fr);
+    gap:7px !important;
+  }
+  .bubble-opt-btn{
+    width:100% !important;
+    height:42px !important;
+    border-radius:14px !important;
+    font-size:1rem !important;
+  }
+  .q-bookmark-btn,.q-clear-btn{ width:34px !important; height:34px !important; border-radius:11px !important; }
+  .bubble-sheet-panel > div:last-child{ flex:0 0 auto; padding:10px 12px !important; }
+  #finishSmartExamBtn{ min-height:46px; padding:10px !important; font-size:.95rem !important; }
+
+  .submit-summary{ gap:8px; }
+  .submit-summary .ss-item{ padding:10px 6px; }
+}
+
+@media(max-width:380px){
+  .exam-samurai-layout{ height:calc(100dvh - 154px) !important; padding:6px !important; }
+  .mobile-exam-switch button{ min-height:38px; font-size:.80rem; }
+  .bubble-row-item{ grid-template-columns:66px 1fr 34px !important; gap:6px !important; padding:8px !important; }
+  .bubble-opt-btn{ height:38px !important; border-radius:12px !important; }
+  .q-bookmark-btn,.q-clear-btn{ width:30px !important; height:30px !important; }
+}
+
+/* Clean separated onboarding tour for desktop/mobile */
+.exam-tour-overlay{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(6,10,8,.78);backdrop-filter:blur(9px)}.exam-tour-overlay.hidden{display:none!important}.exam-tour-card{width:min(500px,96vw);padding:0!important;overflow:hidden;border:1px solid rgba(203,172,128,.36)!important;background:linear-gradient(160deg,var(--surface-1),var(--surface-2))!important;box-shadow:0 24px 80px rgba(0,0,0,.72)!important}.exam-tour-top{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid var(--border-soft)}.skip-tour-btn{width:34px;height:34px;padding:0!important;border-radius:12px!important}.tour-content{padding:22px 24px;text-align:center}.exam-tour-ico{width:70px;height:70px;border-radius:24px;display:grid;place-items:center;margin:0 auto 14px;background:rgba(203,172,128,.12);border:1px solid rgba(203,172,128,.22);font-size:2.35rem}.tour-content h3{font-size:1.24rem;color:var(--text-1);margin:0 0 10px}.tour-content p{font-size:.95rem;line-height:1.9;font-weight:750;margin:0;text-align:right}.exam-tour-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;border-top:1px solid var(--border-soft);background:rgba(0,0,0,.12)}.tour-dots{display:flex;gap:7px;direction:ltr}.tour-dot{width:10px;height:10px;border-radius:999px;border:0;background:var(--surface-3);padding:0;transition:.2s}.tour-dot.active{width:26px;background:var(--gold)}.exam-tour-highlight{box-shadow:0 0 0 4px rgba(203,172,128,.55),0 0 0 9999px rgba(0,0,0,.06)!important;border-color:var(--gold)!important;position:relative;z-index:91}@media(max-width:760px){.exam-tour-overlay{align-items:flex-end;padding:10px}.exam-tour-card{width:100%;border-radius:24px 24px 18px 18px!important}.exam-tour-top{padding:13px 14px}.tour-content{padding:18px 16px}.exam-tour-ico{width:58px;height:58px;border-radius:20px;font-size:2rem}.tour-content h3{font-size:1.08rem}.tour-content p{font-size:.88rem;line-height:1.85}.exam-tour-foot{padding:12px 14px}.exam-tour-highlight{box-shadow:0 0 0 3px rgba(203,172,128,.62)!important}#replayExamTour{min-height:38px;padding:0 12px!important;font-size:.82rem}}
