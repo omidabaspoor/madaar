@@ -31,6 +31,7 @@ function panel_start(string $title, string $subtitle, string $role, string $acti
             ['exams','آزمون‌ساز','clipboard','admin/exams.php'],
             ['internal_exam','تحلیل آزمون','chart','admin/internal_exam_reports.php'],
             ['meetings','جلسات','calendar','admin/schedule_meeting.php'],
+            ['online_sessions','جلسات آنلاین','video','admin/online_sessions.php'],
             ['messages','پیام‌ها','message','admin/messages.php'],
             is_chief_advisor() ? ['advisors','مشاوران','users','admin/advisors.php'] : null,
         ]),
@@ -49,6 +50,7 @@ function panel_start(string $title, string $subtitle, string $role, string $acti
             ['exams','آزمون‌ها','clipboard','student/exams.php'],
             ['exam_analyses','تحلیل آزمون','chart','student/exam_analyses.php'],
             ['meetings','جلسات','calendar','student/meetings.php'],
+            ['online_sessions','جلسات آنلاین','video','student/online_sessions.php'],
             ['messages','پیام‌ها','message','student/messages.php'],
         ],
         'other' => [

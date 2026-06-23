@@ -192,6 +192,9 @@ if ($run) {
         'sql/upgrade_multi_advisor_logs.sql'     => 'سیستم چندمشاوری + لاگ فعالیت',
         'sql/upgrade_advisor_access.sql'         => 'کنترل دسترسی مشاوران',
         'sql/upgrade_web_push_subscriptions.sql' => 'اعلان واقعی Web Push',
+        'sql/upgrade_meeting_sms.sql'           => 'سیستم پیامک + نوع جلسه (مشاوره/کلاس)',
+        'sql/upgrade_meeting_draft.sql'         => 'سیستم پیش‌نویس جلسات + تأیید نهایی',
+        'sql/upgrade_online_sessions.sql'       => 'سیستم جلسات آنلاین (Whiteboard + Chat + Reactions)',
     ];
     foreach ($upgradeFiles as $file => $label) {
         $path = __DIR__ . '/' . $file;
