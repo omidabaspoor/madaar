@@ -41,22 +41,68 @@ try {
     error_log($e->getMessage());
 }
 
+// جلسات آنلاین فعال
+require_once __DIR__ . '/../includes/online_sessions.php';
+online_sessions_schema_ready();
+$liveOnlineSessions = [];
+try {
+    $stmt = db()->prepare('SELECT s.*, u.full_name advisor_name FROM online_sessions s
+        JOIN session_participants p ON p.session_id=s.id AND p.student_id=?
+        JOIN users u ON u.id=s.advisor_id
+        WHERE s.status="live"
+        ORDER BY s.started_at DESC LIMIT 5');
+    $stmt->execute([(int)$u['id']]);
+    $liveOnlineSessions = $stmt->fetchAll();
+} catch (Throwable $e) {}
+
 panel_start('خانه', jalali_date('now'), 'student', 'dashboard', ['student.css']);
 ?>
 
-<?php foreach($todayMeetings as $tm): ?>
+<?php foreach($liveOnlineSessions as $los): ?>
+<div class="panel" style="background: linear-gradient(135deg, rgba(95,174,123,.12), rgba(12,21,18,.92)); border: 2px solid var(--success); border-radius: 18px; padding: 18px; margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; box-shadow: 0 0 24px rgba(95,174,123,.2); animation: pulse Glow 2s infinite alternate;">
+  <div style="display: flex; align-items: center; gap: 14px;">
+    <div style="background: var(--success); color: #0c1512; width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; font-size: 1.3rem;">
+      🔴
+    </div>
+    <div>
+      <span style="font-size: 11px; color: var(--success); font-weight: 1000; text-transform: uppercase;">
+        جلسه آنلاین فعال · LIVE
+      </span>
+      <h3 style="font-size: 15px; font-weight: 900; color: var(--text-1); margin-top: 3px;">
+        🎥 «<?= e($los['title']) ?>»
+      </h3>
+      <p class="muted" style="font-size: 12.5px; margin-top: 2px;">
+        توسط <?= e($los['advisor_name']) ?> · کد: <code style="background:rgba(0,0,0,.3);padding:1px 6px;border-radius:4px"><?= e($los['jitsi_room_name']) ?></code>
+      </p>
+    </div>
+  </div>
+  <a href="<?= url('online_room.php?session='.(int)$los['id']) ?>" class="btn btn-gold btn-sm" style="font-weight: 900; background: var(--success); color: #0c1512;">
+    <?= icon('login',15) ?> ورود به اتاق
+  </a>
+</div>
+<?php endforeach; ?>
+
+<?php foreach($todayMeetings as $tm):
+  $tmIsClass = ($tm['session_type'] ?? 'consultation') === 'class';
+  $tmTypeLabel = $tmIsClass ? 'کلاس درسی' : 'جلسه مشاوره';
+  $tmTypeEmoji = $tmIsClass ? '👥' : '👤';
+?>
 <div class="panel alert-pulse" style="background: linear-gradient(135deg, #1c2823, #0c1512); border: 2px solid var(--gold); border-radius: 18px; padding: 18px; margin-bottom: 18px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; box-shadow: 0 0 20px rgba(178,148,95,0.15); animation: pulse Glow 2s infinite alternate;">
   <div style="display: flex; align-items: center; gap: 14px;">
     <div style="background: rgba(178, 148, 95, 0.15); color: var(--gold-light); width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; font-size: 1.3rem;">
       🔔
     </div>
     <div>
-      <span style="font-size: 11px; color: var(--gold-light); font-weight: 900; text-transform: uppercase;">هشدار زنگ جلسه امروز 📅</span>
-      <h3 style="font-size: 15px; font-weight: 900; color: var(--text-1); margin-top: 3px;">جلسه مشاوره: «<?= e($tm['title']) ?>»</h3>
+      <span style="font-size: 11px; color: var(--gold-light); font-weight: 900; text-transform: uppercase;">
+        هشدار <?= $tmTypeLabel ?> امروز <?= $tmTypeEmoji ?>
+      </span>
+      <h3 style="font-size: 15px; font-weight: 900; color: var(--text-1); margin-top: 3px;">
+        <?= $tmTypeLabel ?>: «<?= e($tm['title']) ?>»
+      </h3>
       <p class="muted" style="font-size: 12.5px; margin-top: 2px;">امروز <?= $tm['session_time'] ? ('ساعت <b>' . fa_num(substr((string)$tm['session_time'], 0, 5)) . '</b>') : '<b>ساعت توافقی</b>' ?> برگزار خواهد شد. لطفاً آماده باشید!</p>
     </div>
   </div>
-  <a href="<?= url('student/meetings.php') ?>" class="btn btn-gold btn-sm" style="font-weight: 900;">ورود به اتاق جلسه</a>
+  <a href="<?= url('student/meetings.php') ?>" class="btn btn-gold btn-sm" style="font-weight: 900;">ورود به <?= $tmTypeLabel ?></a>
 </div>
 <?php endforeach; ?>
 
