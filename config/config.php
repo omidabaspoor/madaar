@@ -7,7 +7,7 @@
 declare(strict_types=1);
 
 // --- محیط ---
-define('APP_ENV', 'production');          // production | development
+define('APP_ENV', 'development');          // production | development
 define('APP_DOMAIN', 'https://madaar-edu.ir');
 define('APP_NAME', 'مَدار');
 define('APP_NAME_EN', 'madaar');

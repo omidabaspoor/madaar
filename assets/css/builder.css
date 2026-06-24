@@ -1476,3 +1476,126 @@ body.copy-mode .cell { cursor:copy; }
   transition:.15s;
 }
 .eb-v2 .sheet-thumb-item .remove-sheet-item-btn:hover{ background:rgba(217,116,116,.32); }
+
+/* ===== Exam Builder – Cancelled Question (سامورایی) ===== */
+.q-card.q-cancelled{
+  position:relative;
+  opacity:.78;
+  background:linear-gradient(135deg, rgba(217,116,116,.08), var(--surface));
+  border-color:rgba(217,116,116,.40) !important;
+}
+.q-card.q-cancelled::after{
+  content:'';
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  background:repeating-linear-gradient(
+    -45deg,
+    transparent 0,
+    transparent 14px,
+    rgba(217,116,116,.10) 14px,
+    rgba(217,116,116,.10) 15px
+  );
+  border-radius:inherit;
+  z-index:1;
+}
+.q-card.q-cancelled .q-top,
+.q-card.q-cancelled .q-options,
+.q-card.q-cancelled .q-exp,
+.q-card.q-cancelled .q-img-preview{ position:relative; z-index:2; }
+.q-card.q-cancelled .q-text,
+.q-card.q-cancelled .opt-input{
+  text-decoration:line-through;
+  text-decoration-color:rgba(217,116,116,.75);
+  text-decoration-thickness:2px;
+  color:var(--text-3) !important;
+}
+.q-cancel-banner{
+  display:flex; align-items:center; gap:8px;
+  margin:-4px -4px 10px;
+  padding:9px 12px;
+  background:rgba(217,116,116,.13);
+  border:1px solid rgba(217,116,116,.30);
+  border-radius:12px;
+  color:#ff9a9a;
+  font-size:.82rem; font-weight:900;
+}
+.q-card.q-cancelled .q-opt{ opacity:.65; pointer-events:none; }
+.q-card.q-cancelled .q-img-btn{ opacity:.5; pointer-events:none; }
+
+/* restore button */
+[data-restore-question]{ 
+  display:inline-flex; align-items:center; gap:5px;
+  padding:5px 10px;
+  background:rgba(95,174,123,.14);
+  border:1px solid rgba(95,174,123,.30);
+  color:#85d89f;
+  border-radius:10px;
+  font-weight:900;
+  font-size:.78rem;
+  cursor:pointer;
+}
+[data-restore-question]:hover{ background:rgba(95,174,123,.24); }
+
+/* quick_sheet bubble — cancelled state */
+.bubble-grid-studio .bg-item.qkey-card.cancelled-q{
+  border-color:rgba(217,116,116,.55) !important;
+  background:linear-gradient(160deg,rgba(217,116,116,.10),rgba(12,21,18,.12)) !important;
+  opacity:.9;
+  position:relative;
+}
+.bubble-grid-studio .bg-item.qkey-card.cancelled-q::after{
+  content:'';
+  position:absolute; inset:0; pointer-events:none;
+  background:repeating-linear-gradient(-45deg,transparent 0,transparent 13px,rgba(217,116,116,.12) 13px,rgba(217,116,116,.12) 14px);
+  border-radius:inherit;
+}
+.bubble-grid-studio .bg-item.qkey-card.cancelled-q .qkey-options{ opacity:.45; pointer-events:none; }
+.cancelled-badge-q{
+  position:absolute; top:6px; left:8px;
+  background:var(--danger); color:#fff;
+  font-size:.62rem; font-weight:1000;
+  padding:2px 7px; border-radius:99px;
+  z-index:3;
+}
+
+/* student exam — cancelled question display */
+.cancelled-question{
+  opacity:.92;
+  background:linear-gradient(135deg, rgba(217,116,116,.07), var(--surface-2)) !important;
+  border:1px dashed rgba(217,116,116,.38) !important;
+  position:relative;
+  overflow:hidden;
+}
+.cancelled-question::before{
+  content:'';
+  position:absolute; inset:0;
+  background-image:repeating-linear-gradient(-45deg,transparent 0,transparent 14px,rgba(217,116,116,.14) 14px,rgba(217,116,116,.14) 15px);
+  pointer-events:none; z-index:1;
+}
+.cancelled-question > *{ position:relative; z-index:2; }
+.cancelled-question-label{
+  display:flex; align-items:center; gap:8px;
+  padding:8px 12px;
+  margin-bottom:10px;
+  background:rgba(217,116,116,.14);
+  border:1px solid rgba(217,116,116,.30);
+  border-radius:12px;
+  color:#ff9a9a;
+  font-size:.82rem; font-weight:900;
+}
+.cancelled-question .eq-text,
+.cancelled-question .eqo-text,
+.cancelled-question .bubble-opt-btn{
+  text-decoration:line-through;
+  text-decoration-color:rgba(217,116,116,.75);
+  text-decoration-thickness:2px;
+}
+.cancelled-question .eq-opt,
+.cancelled-question .bubble-opt-btn{
+  pointer-events:none !important;
+  opacity:.55;
+}
+.cancelled-question .eq-clear,
+.cancelled-question .q-clear-btn{ display:none !important; }
+

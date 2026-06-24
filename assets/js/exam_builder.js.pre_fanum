@@ -270,7 +270,7 @@
         custom_keys: st.custom_keys
       }});
       qsDirty = false;
-      setStatus('saved','✓ ذخیره خودکار '+faNum(d.saved_at||new Date().toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'})));
+      setStatus('saved','✓ ذخیره خودکار '+fa_num(d.saved_at||new Date().toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'})));
       return true;
     }catch(e){
       setStatus('saved','ذخیره ناموفق');
@@ -509,7 +509,7 @@
 
     if (activeKeys.length === 0 && cancelledKeys.length === 0) { toast('حداقل پاسخ صحیح یک سوال را انتخاب کنید','error'); return; }
     const emptyCount = bubbleItems().filter(it => !it.classList.contains('cancelled-q') && !selectedOpt(it)).length;
-    if (emptyCount > 0 && !confirm(`${(typeof faNum==='function'?faNum:(window.faNum||function(n){return String(n)}))(emptyCount)} سوال بدون پاسخ صحیح مانده است و ساخته نمی‌شود. ادامه می‌دهید؟`)) return;
+    if (emptyCount > 0 && !confirm(`${faNum(emptyCount)} سوال بدون پاسخ صحیح مانده است و ساخته نمی‌شود. ادامه می‌دهید؟`)) return;
 
     if (!examId) {
       const ok = await saveMeta();
@@ -531,7 +531,7 @@
         custom_keys: st.custom_keys
       }});
       qsDirty = false;
-      toast(`آزمون ساخته شد — ${faNum(d.q_count)} سوال فعال، ${faNum((d.inserted||0) - (d.q_count||0))} خط‌خورده 🎉`,'success', 2600);
+      toast(`آزمون ساخته شد — ${fa_num(d.q_count)} سوال فعال، ${fa_num((d.inserted||0) - (d.q_count||0))} خط‌خورده 🎉`,'success', 2600);
       setTimeout(()=>{ location.href = location.pathname+'?id='+examId+'&step=2&mode=quick_sheet&saved=1'; }, 750);
     }catch(err){
       console.error('[quick_sheet_generate]', err);

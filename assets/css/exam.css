@@ -1347,3 +1347,43 @@ input[type="text"], input[type="number"], select, textarea{
 .bubble-rows-container{ scrollbar-width:thin; scrollbar-color:rgba(203,172,128,.28) transparent; }
 
 /* ----- ۵. بازنویسی rule های قدیمی متناقض که ممکن بود overflow ایجاد کنن ----- */
+/* student exam — cancelled question display */
+.cancelled-question{
+  opacity:.92;
+  background:linear-gradient(135deg, rgba(217,116,116,.07), var(--surface-2)) !important;
+  border:1px dashed rgba(217,116,116,.38) !important;
+  position:relative;
+  overflow:hidden;
+}
+.cancelled-question::before{
+  content:'';
+  position:absolute; inset:0;
+  background-image:repeating-linear-gradient(-45deg,transparent 0,transparent 14px,rgba(217,116,116,.14) 14px,rgba(217,116,116,.14) 15px);
+  pointer-events:none; z-index:1;
+}
+.cancelled-question > *{ position:relative; z-index:2; }
+.cancelled-question-label{
+  display:flex; align-items:center; gap:8px;
+  padding:8px 12px;
+  margin-bottom:10px;
+  background:rgba(217,116,116,.14);
+  border:1px solid rgba(217,116,116,.30);
+  border-radius:12px;
+  color:#ff9a9a;
+  font-size:.82rem; font-weight:900;
+}
+.cancelled-question .eq-text,
+.cancelled-question .eqo-text,
+.cancelled-question .bubble-opt-btn{
+  text-decoration:line-through;
+  text-decoration-color:rgba(217,116,116,.75);
+  text-decoration-thickness:2px;
+}
+.cancelled-question .eq-opt,
+.cancelled-question .bubble-opt-btn{
+  pointer-events:none !important;
+  opacity:.55;
+}
+.cancelled-question .eq-clear,
+.cancelled-question .q-clear-btn{ display:none !important; }
+

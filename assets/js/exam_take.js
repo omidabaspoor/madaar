@@ -356,9 +356,15 @@
   }
 
   // Dual Bubble Sheet interaction
+  // skip cancelled rows
+  function isCancelledRow(el){
+    return el?.closest('.cancelled-question, .bubble-row-item[data-cancelled="1"]');
+  }
   env.addEventListener('click', e => {
     const bOpt = e.target.closest('.bubble-opt-btn');
     if (bOpt) {
+      const parent = bOpt.closest('.bubble-row-item');
+      if(isCancelledRow(parent)){ toast('این سوال خط خورده و قابل پاسخ نیست','info',1800); return; }
       const parent = bOpt.closest('.bubble-row-item');
       const qid = parent.dataset.q;
       const val = parseInt(bOpt.dataset.opt);
@@ -560,6 +566,9 @@
   });
 
   function setAnswer(qid,val){
+    // block cancelled questions
+    const row = document.querySelector('.bubble-row-item[data-q="'+qid+'"], .exam-q[data-q="'+qid+'"]');
+    if(row && (row.classList.contains('cancelled-question') || row.dataset.cancelled==='1')) return;
     state[qid]=state[qid]||{}; state[qid].s=val;
     pending.add(qid);
     saveOne(qid);
@@ -676,33 +685,41 @@
   document.getElementById('finishBtn2')?.addEventListener('click',()=>{ closeGrid(); openSubmit(); });
   document.getElementById('confirmSubmit')?.addEventListener('click',()=>doSubmit());
 
-  async function doSubmit(){
+  async function doSubmit(retryCount=0){
     if(submitted) return;
     const btn=document.getElementById('confirmSubmit');
-    if(btn) { btn.disabled=true; btn.innerHTML='<span class="spinner"></span>'; }
+    if(btn) { btn.disabled=true; btn.innerHTML='<span class="spinner"></span> در حال ثبت…'; }
     
     let answers = [];
-    const dualRows = document.querySelectorAll('.bubble-row-item');
+    const dualRows = document.querySelectorAll('.bubble-row-item:not(.cancelled-question):not([data-cancelled="1"])');
     if (dualRows.length) {
       dualRows.forEach(row => {
         const qid = row.dataset.q;
         answers.push({ q: parseInt(qid), s: state[qid]?.s ?? null, f: state[qid]?.f ? 1 : 0 });
       });
     } else {
-      answers = qs.map(q => ({ q: parseInt(q.dataset.q), s: state[q.dataset.q]?.s ?? null, f: state[q.dataset.q]?.f ? 1 : 0 }));
+      answers = qs.filter(q => !q.classList.contains('cancelled-question') && q.dataset.cancelled!=='1')
+        .map(q => ({ q: parseInt(q.dataset.q), s: state[q.dataset.q]?.s ?? null, f: state[q.dataset.q]?.f ? 1 : 0 }));
     }
 
     try{
       const d=await api(API,{method:'POST',body:{action:'submit',attempt_id:attemptId,answers}});
-      if(!d.ok) throw d;
+      if(!d || d.ok===false) throw d || {error:'پاسخ نامعتبر'};
       submitted=true;
       window.removeEventListener('beforeunload',warnLeave);
-      location.href=d.redirect;
+      if(d.redirect){ location.href=d.redirect; }
+      else { location.href = 'exam_result.php?attempt='+attemptId; }
     }catch(e){
-      if(btn) { btn.disabled=false; btn.innerHTML='✓ ثبت نهایی و مشاهده کارنامه'; }
-      const msg = (e && (e.error||e.message)) || 'خطا در ثبت نهایی، دوباره تلاش کنید';
       console.error('[Exam submit]', e);
-      toast(msg, 'error', 5000);
+      // auto retry once on network error
+      if(retryCount < 1 && (!e || !e.error || String(e.error).includes('ارتباط'))){
+        toast('در حال تلاش مجدد…','info',1800);
+        setTimeout(()=>{ if(btn){ btn.disabled=false; } doSubmit(retryCount+1); }, 1200);
+        return;
+      }
+      if(btn) { btn.disabled=false; btn.innerHTML='✓ ثبت نهایی و مشاهده کارنامه'; }
+      const msg = (e && (e.error||e.message)) || 'خطا در ثبت نهایی';
+      toast(msg+' — دوباره تلاش کنید','error', 5000);
     }
   }
 

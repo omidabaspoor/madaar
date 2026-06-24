@@ -12,8 +12,6 @@
   const esc = (s)=>String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   let dirty = new Set();
   let metaDirty = false;
-  let qsDirty = false; // quick_sheet dirty flag
-  let qsSaveTimer = null;
 
   const ICO={check:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>',
     trash:'<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>',
@@ -241,56 +239,6 @@
   const bubbleStudio   = document.querySelector('.bubble-grid-studio');
   const keyBadge       = document.getElementById('keyQCountBadge');
 
-  // ===== Quick_sheet autosave engine =====
-  function collectQuickSheetState(){
-    const items = bubbleItems();
-    const ck = [];
-    items.forEach(item=>{
-      const qnum = parseInt(item.querySelector('.bubble-qnum-input')?.value || item.dataset.realnum || '0')||0;
-      const opt = selectedOpt(item);
-      const cancelled = item.classList.contains('cancelled-q') ? 1 : 0;
-      if(qnum>0) ck.push({question_number:qnum, correct_opt:opt, is_cancelled:cancelled});
-    });
-    return {
-      answer_key: normalizeKey(quickKeyInput?.value || ''),
-      custom_keys: ck
-    };
-  }
-  async function quickSheetAutosave(manual=false){
-    if(!examId || root.dataset.mode!=='quick_sheet') return false;
-    if(!qsDirty && !manual) return true;
-    if(manual) await saveMeta().catch(()=>{});
-    const st = collectQuickSheetState();
-    setStatus('saving','ذخیره خودکار پاسخنامه…');
-    try{
-      const d = await api(API,{method:'POST', body:{
-        action:'quick_sheet_autosave',
-        exam_id: examId,
-        answer_key: st.answer_key,
-        custom_keys: st.custom_keys
-      }});
-      qsDirty = false;
-      setStatus('saved','✓ ذخیره خودکار '+faNum(d.saved_at||new Date().toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'})));
-      return true;
-    }catch(e){
-      setStatus('saved','ذخیره ناموفق');
-      if(manual) throw e;
-      return false;
-    }
-  }
-  function scheduleQuickSheetAutosave(delay=1800){
-    clearTimeout(qsSaveTimer);
-    qsSaveTimer = setTimeout(()=>quickSheetAutosave(false), delay);
-  }
-  // autosave هر ۵ ثانیه
-  setInterval(()=>{ if(root.dataset.mode==='quick_sheet' && qsDirty) quickSheetAutosave(false); }, 5000);
-  // قبل از خروج هشدار
-  window.addEventListener('beforeunload', (e)=>{
-    if(qsDirty && root.dataset.mode==='quick_sheet'){
-      e.preventDefault(); e.returnValue='';
-    }
-  });
-
   function normalizeKey(v){
     return String(v || '')
       .replace(/[۱١]/g,'1').replace(/[۲٢]/g,'2').replace(/[۳٣]/g,'3').replace(/[۴٤]/g,'4')
@@ -384,9 +332,6 @@
       const answered = bubbleItems().filter(selectedOpt).length;
       if(keyBadge) keyBadge.textContent = `${faNum(answered)} پاسخ از ${faNum(bubbleItems().length)} سوال`;
     }
-    // mark quick_sheet dirty for autosave
-    qsDirty = true;
-    scheduleQuickSheetAutosave();
   }
   function appendNewBubbles(count, afterEl = null, startNum = null) {
     if (!bubbleStudio) return [];
@@ -440,7 +385,7 @@
     updateBubbleState();
   }
 
-  quickKeyInput?.addEventListener('input', ()=>{ syncBubblesToKeyInput(); qsDirty=true; scheduleQuickSheetAutosave(); });
+  quickKeyInput?.addEventListener('input', syncBubblesToKeyInput);
 
   bubbleStudio?.addEventListener('click', e => {
     const btn = e.target.closest('.bubble-btn');
@@ -459,25 +404,9 @@
     if (action === 'insert-before') insertBubbleRelative(item, 'before');
     if (action === 'insert-after') insertBubbleRelative(item, 'after');
     if (action === 'delete') {
-      // soft-cancel در quick_sheet: خط بزن نه حذف کامل
-      const wasCancelled = item.classList.contains('cancelled-q');
-      if (wasCancelled) {
-        // restore
-        item.classList.remove('cancelled-q');
-        item.querySelector('.cancelled-badge-q')?.remove();
-        item.querySelectorAll('.bubble-btn').forEach(b => b.disabled = false);
-        toast('سوال دوباره فعال شد','success',1300);
-      } else {
-        if (!confirm('این سوال خط بخورد؟\n\n• در پاسخ‌برگ دانش‌آموز با خط قرمز نمایش داده می‌شود\n• در نمره اثر ندارد')) return;
-        item.classList.add('cancelled-q');
-        if (!item.querySelector('.cancelled-badge-q')) {
-          item.insertAdjacentHTML('afterbegin','<span class="cancelled-badge-q">خط‌خورده</span>');
-        }
-        item.querySelectorAll('.bubble-btn').forEach(b => { b.classList.remove('active'); b.disabled = true; });
-        toast('سوال خط خورد ✓','success',1500);
-      }
-      updateBubbleState();
-      return;
+      if (bubbleItems().length <= 1) { toast('حداقل یک سوال باید باقی بماند', 'error'); return; }
+      if (!confirm('این سوال از پاسخنامه حذف شود؟')) return;
+      item.remove(); updateBubbleState();
     }
     if (action === 'clear') { item.querySelectorAll('.bubble-btn').forEach(b => b.classList.remove('active')); updateBubbleState(); }
     if (action === 'move-up') { const prev = item.previousElementSibling; if (prev) { prev.insertAdjacentElement('beforebegin', item); updateBubbleState(); } }
@@ -487,9 +416,7 @@
     if (!e.target.matches('.bubble-qnum-input')) return;
     const item = e.target.closest('.bg-item');
     if (item) item.dataset.realnum = e.target.value;
-    qsDirty = true;
     updateBubbleState();
-    scheduleQuickSheetAutosave();
   });
 
   document.getElementById('add10BubblesBtn')?.addEventListener('click', () => {
@@ -500,45 +427,35 @@
 
   document.getElementById('saveQuickSheetSuiteBtn')?.addEventListener('click', async function() {
     updateBubbleState();
-    const st = collectQuickSheetState();
-    // custom_keys شامل cancelled هم هست
-    const activeKeys = st.custom_keys.filter(k=>!k.is_cancelled && k.correct_opt>0);
-    const cancelledKeys = st.custom_keys.filter(k=>k.is_cancelled);
+    const customKeys = [];
     const dupNums = bubbleItems().filter(it => it.classList.contains('duplicate-num')).map(it => it.querySelector('.bubble-qnum-input')?.value).filter(Boolean);
     if (dupNums.length && !confirm('چند شماره سوال تکراری وجود دارد. با همین وضعیت ذخیره شود؟')) return;
 
-    if (activeKeys.length === 0 && cancelledKeys.length === 0) { toast('حداقل پاسخ صحیح یک سوال را انتخاب کنید','error'); return; }
-    const emptyCount = bubbleItems().filter(it => !it.classList.contains('cancelled-q') && !selectedOpt(it)).length;
-    if (emptyCount > 0 && !confirm(`${(typeof faNum==='function'?faNum:(window.faNum||function(n){return String(n)}))(emptyCount)} سوال بدون پاسخ صحیح مانده است و ساخته نمی‌شود. ادامه می‌دهید؟`)) return;
+    bubbleItems().forEach(item => {
+      const qnum = parseInt(item.querySelector('.bubble-qnum-input')?.value || item.dataset.realnum || item.dataset.qnum || '0') || 0;
+      const optVal = selectedOpt(item);
+      if (qnum && optVal) customKeys.push({ question_number: qnum, correct_opt: optVal });
+    });
 
+    const answerKey = normalizeKey(quickKeyInput ? quickKeyInput.value : '');
+    if (customKeys.length === 0) { toast('حداقل پاسخ صحیح یک سوال را انتخاب کنید', 'error'); return; }
+    const emptyCount = bubbleItems().length - customKeys.length;
+    if (emptyCount > 0 && !confirm(`${faNum(emptyCount)} سوال بدون پاسخ صحیح مانده است و ساخته نمی‌شود. ادامه می‌دهید؟`)) return;
     if (!examId) {
       const ok = await saveMeta();
-      if (!ok || !examId) { toast('ابتدا عنوان آزمون را وارد کن','error'); return; }
+      if (!ok || !examId) { toast('ابتدا عنوان آزمون را وارد کن', 'error'); return; }
     }
-    // یک autosave نهایی قبل از generate
-    await quickSheetAutosave(true).catch(()=>{});
-
     const oldHtml = this.innerHTML;
     this.disabled = true; this.innerHTML = '<span class="spinner"></span> در حال ساخت سوالات…';
     const sheetPath = thumbsGrid?.querySelector('.sheet-thumb-item')?.dataset.spath || '';
 
-    try{
-      const d = await api(API, { method:'POST', body:{
-        action:'quick_sheet_generate',
-        exam_id: examId,
-        sheet_path: sheetPath,
-        answer_key: st.answer_key,
-        custom_keys: st.custom_keys
-      }});
-      qsDirty = false;
-      toast(`آزمون ساخته شد — ${faNum(d.q_count)} سوال فعال، ${faNum((d.inserted||0) - (d.q_count||0))} خط‌خورده 🎉`,'success', 2600);
-      setTimeout(()=>{ location.href = location.pathname+'?id='+examId+'&step=2&mode=quick_sheet&saved=1'; }, 750);
-    }catch(err){
-      console.error('[quick_sheet_generate]', err);
-      let msg = err?.error || err?.message || 'خطای سرور';
-      if (err?.trace) console.log('trace', err.trace);
-      toast('خطا در ثبت نهایی: '+msg, 'error', 6000);
-      this.disabled = false; this.innerHTML = oldHtml;
+    try {
+      const d = await api(API, { method: 'POST', body: { action: 'quick_sheet_generate', exam_id: examId, sheet_path: sheetPath, answer_key: answerKey, custom_keys: customKeys } });
+      toast(`آزمون با موفقیت ساخته شد (${faNum(d.q_count)} سوال) 🎉`, 'success');
+      setTimeout(() => { location.href = `${location.pathname}?id=${examId}&step=2&mode=quick_sheet`; }, 650);
+    } catch(err) {
+      toast(err.error || 'خطا در ثبت نهایی آزمون', 'error');
+      this.disabled = false; this.innerHTML = oldHtml || '✓ ثبت نهایی و ساخت سوالات';
     }
   });
 
