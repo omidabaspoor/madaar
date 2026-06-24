@@ -20,23 +20,20 @@ $sections  = exam_sections($examId);
 $questions = exam_questions($examId);
 $answers   = attempt_answers((int)$attempt['id']);
 
-// گروه‌بندی سوالات — سوالات خط‌خورده هم نمایش داده می‌شوند ولی در نمره حساب نمی‌شوند
+// گروه‌بندی سوالات بر اساس بخش، با شماره‌گذاری سراسری
 $qBySection = [];
 $globalNum  = 0;
-$flatQ      = [];
-$activeCount = 0;
+$flatQ      = []; 
 foreach ($sections as $sec) {
     foreach ($questions as $q) {
         if ((int)$q['section_id'] !== (int)$sec['id']) continue;
         $globalNum++;
         $q['gnum'] = $q['question_number'] !== null ? (int)$q['question_number'] : $globalNum;
-        $q['is_cancelled'] = !empty($q['is_cancelled']) ? 1 : 0;
         $qBySection[(int)$sec['id']][] = $q;
         $flatQ[] = $q;
-        if (empty($q['is_cancelled'])) $activeCount++;
     }
 }
-$totalQ = $activeCount > 0 ? $activeCount : count($flatQ);
+$totalQ = count($flatQ);
 $remain = $attempt['deadline_at'] ? max(0, strtotime($attempt['deadline_at']) - $now) : null;
 
 // داده‌ی اولیه برای JS
@@ -147,30 +144,26 @@ page_head('آزمون: ' . $exam['title'], '', ['exam.css']);
           <?php foreach($flatQ as $qi => $q): 
               $sel = $initAnswers[$q['id']]['s'] ?? null;
               $fl  = $initAnswers[$q['id']]['f'] ?? 0;
-              $isCancelled = !empty($q['is_cancelled']);
           ?>
-            <div class="bubble-row-item<?= $isCancelled ? ' cancelled-question' : '' ?>" data-q="<?= (int)$q['id'] ?>" data-gnum="<?= $qi+1 ?>" data-cancelled="<?= $isCancelled ? '1':'0' ?>" style="background:var(--surface-2);border:1px solid var(--border-soft);padding:10px 20px;border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:16px;box-shadow:0 4px 12px rgba(0,0,0,0.1);position:relative;<?= $isCancelled?'flex-wrap:wrap':'' ?>"> 
-              <?php if($isCancelled): ?>
-              <div class="cancelled-question-label" style="width:100%">✕ این سوال حذف شد — در نمره محاسبه نمی‌شود</div>
-              <?php endif; ?>
+            <div class="bubble-row-item" data-q="<?= (int)$q['id'] ?>" data-gnum="<?= $qi+1 ?>" style="background:var(--surface-2);border:1px solid var(--border-soft);padding:10px 20px;border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:16px;box-shadow:0 4px 12px rgba(0,0,0,0.1)">
               
               <div class="flex gap-3" style="align-items:center">
                 <span style="font-family:monospace;font-size:1.1rem;font-weight:900;color:var(--text-1);width:40px">Q<?= $qi+1 ?></span>
-                <button type="button" class="q-bookmark-btn <?= $fl?'active':'' ?>" data-flag title="علامت‌گذاری سوال برای مرور" <?= $isCancelled?'disabled':'' ?> style="border:none;background:<?= $fl?'var(--gold)':'var(--surface-1)' ?>;color:<?= $fl?'#000':'var(--text-2)' ?>;width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.15s">
+                <button type="button" class="q-bookmark-btn <?= $fl?'active':'' ?>" data-flag title="علامت‌گذاری سوال برای مرور" style="border:none;background:<?= $fl?'var(--gold)':'var(--surface-1)' ?>;color:<?= $fl?'#000':'var(--text-2)' ?>;width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.15s">
                   <?= icon('flag',16) ?>
                 </button>
               </div>
 
               <div class="flex gap-2 bubble-options-group">
                 <?php for($oi=1; $oi<=4; $oi++): ?>
-                  <button type="button" class="bubble-opt-btn <?= $sel===$oi?'selected':'' ?>" data-opt="<?= $oi ?>" <?= $isCancelled?'disabled':'' ?> style="width:36px;height:36px;border-radius:50%;border:1px solid var(--border-soft);background:<?= $sel===$oi?'var(--gold)':'var(--surface-1)' ?>;color:<?= $sel===$oi?'#000':'var(--text-2)' ?>;font-size:.95rem;font-weight:900;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.1s">
+                  <button type="button" class="bubble-opt-btn <?= $sel===$oi?'selected':'' ?>" data-opt="<?= $oi ?>" style="width:36px;height:36px;border-radius:50%;border:1px solid var(--border-soft);background:<?= $sel===$oi?'var(--gold)':'var(--surface-1)' ?>;color:<?= $sel===$oi?'#000':'var(--text-2)' ?>;font-size:.95rem;font-weight:900;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.1s">
                     <?= $oi ?>
                   </button>
                 <?php endfor; ?>
               </div>
               
               <div style="width:36px;display:flex;justify-content:center">
-                <button type="button" class="q-clear-btn <?= $sel?'':'hidden' ?>" data-clear title="پاک‌کردن پاسخ" <?= $isCancelled?'disabled style="display:none!important"':'' ?> style="background:rgba(217,116,116,0.15);border:1px solid rgba(217,116,116,0.3);color:var(--danger);width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer">
+                <button type="button" class="q-clear-btn <?= $sel?'':'hidden' ?>" data-clear title="پاک‌کردن پاسخ" style="background:rgba(217,116,116,0.15);border:1px solid rgba(217,116,116,0.3);color:var(--danger);width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer">
                   <?= icon('close',16) ?>
                 </button>
               </div>
@@ -196,20 +189,17 @@ page_head('آزمون: ' . $exam['title'], '', ['exam.css']);
         <?php $i=0; foreach ($flatQ as $q): $sel = $initAnswers[$q['id']]['s'] ?? null; $fl = $initAnswers[$q['id']]['f'] ?? 0;
           $secName=''; foreach($sections as $s){ if((int)$s['id']===(int)$q['section_id']){ $secName=$s['name']; break; } }
         ?>
-        <div class="exam-q <?= $i===0?'active':'' ?> <?= !empty($q['is_cancelled'])?'cancelled-question':'' ?>" data-q="<?= (int)$q['id'] ?>" data-index="<?= $i ?>" data-section="<?= (int)$q['section_id'] ?>" data-cancelled="<?= !empty($q['is_cancelled'])?'1':'0' ?>">
+        <div class="exam-q <?= $i===0?'active':'' ?>" data-q="<?= (int)$q['id'] ?>" data-index="<?= $i ?>" data-section="<?= (int)$q['section_id'] ?>">
           <div class="eq-head">
             <span class="eq-sec"><?= e($secName) ?></span>
             <span class="eq-num">سوال <?= fa_num($q['gnum']) ?> از <?= fa_num($totalQ) ?></span>
-            <button class="eq-flag <?= $fl?'on':'' ?>" data-flag data-tip="علامت برای مرور" <?= !empty($q['is_cancelled'])?'disabled':'' ?>><?= icon('flag',16) ?></button>
+            <button class="eq-flag <?= $fl?'on':'' ?>" data-flag data-tip="علامت برای مرور"><?= icon('flag',16) ?></button>
           </div>
-          <?php if(!empty($q['is_cancelled'])): ?>
-          <div class="cancelled-question-label" style="margin-bottom:12px">✕ این سوال حذف شد — در نمره محاسبه نمی‌شود</div>
-          <?php endif; ?>
           <?php if($q['q_image']):?><div class="eq-image"><img src="<?= url($q['q_image']) ?>" alt="" loading="lazy"></div><?php endif;?>
           <div class="eq-text"><?= nl2br(e($q['q_text'] ?: '—')) ?></div>
           <div class="eq-options">
             <?php for($o=1;$o<=4;$o++): if($q['opt'.$o]===null || $q['opt'.$o]==='') continue; ?>
-            <button class="eq-opt <?= $sel===$o?'selected':'' ?>" data-opt="<?= $o ?>" <?= !empty($q['is_cancelled'])?'disabled':'' ?>>
+            <button class="eq-opt <?= $sel===$o?'selected':'' ?>" data-opt="<?= $o ?>">
               <span class="eqo-marker"><?= fa_num($o) ?></span>
               <span class="eqo-text"><?= e($q['opt'.$o]) ?></span>
             </button>
