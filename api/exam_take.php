@@ -12,6 +12,7 @@ $u = current_user();
 $me = (int)$u['id'];
 $in = array_merge($_POST, body_json());
 $action = (string)($in['action'] ?? '');
+ensure_exam_question_schema();
 
 /** attempt متعلق به این دانش‌آموز و باز؟ */
 function my_attempt(int $attemptId, int $me): ?array {
@@ -23,6 +24,12 @@ function my_attempt(int $attemptId, int $me): ?array {
 function attempt_expired(array $a): bool {
     if (empty($a['deadline_at'])) return false;
     return strtotime($a['deadline_at']) < time();
+}
+
+function active_exam_question_ids(int $examId): array {
+    $st = db()->prepare('SELECT id FROM exam_questions WHERE exam_id=? AND COALESCE(is_cancelled,0)=0');
+    $st->execute([$examId]);
+    return array_fill_keys(array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN)), true);
 }
 
 try {
@@ -38,7 +45,7 @@ case 'answer': {
     $sel = $in['selected_opt'] ?? null;
     $sel = ($sel === null || $sel === '' || $sel === 0 || $sel === '0') ? null : max(1,min(4,(int)$sel));
     // سوال متعلق به همین آزمون؟
-    $chk = db()->prepare('SELECT id FROM exam_questions WHERE id=? AND exam_id=?');
+    $chk = db()->prepare('SELECT id FROM exam_questions WHERE id=? AND exam_id=? AND COALESCE(is_cancelled,0)=0');
     $chk->execute([$qid, $a['exam_id']]);
     if (!$chk->fetch()) json_out(['ok'=>false,'error'=>'سوال نامعتبر'],422);
     db()->prepare('INSERT INTO exam_answers (attempt_id,question_id,selected_opt) VALUES (?,?,?)
@@ -52,6 +59,9 @@ case 'flag': {
     $a = my_attempt($attemptId, $me);
     if (!$a || $a['status']==='submitted') json_out(['ok'=>false,'error'=>'نامعتبر'],409);
     $qid = (int)($in['question_id'] ?? 0);
+    $chk = db()->prepare('SELECT id FROM exam_questions WHERE id=? AND exam_id=? AND COALESCE(is_cancelled,0)=0');
+    $chk->execute([$qid, $a['exam_id']]);
+    if (!$chk->fetch()) json_out(['ok'=>true,'ignored'=>true]);
     $fl = (int)((string)($in['flagged'] ?? '0')==='1');
     db()->prepare('INSERT INTO exam_answers (attempt_id,question_id,flagged) VALUES (?,?,?)
         ON DUPLICATE KEY UPDATE flagged=VALUES(flagged)')
@@ -70,10 +80,11 @@ case 'sync': {
     if (is_array($answers)) {
         $stmt = db()->prepare('INSERT INTO exam_answers (attempt_id,question_id,selected_opt,flagged) VALUES (?,?,?,?)
             ON DUPLICATE KEY UPDATE selected_opt=VALUES(selected_opt), flagged=VALUES(flagged)');
+        $activeIds = active_exam_question_ids((int)$a['exam_id']);
         db()->beginTransaction();
         try {
             foreach ($answers as $ans) {
-                $qid=(int)($ans['q'] ?? 0); if(!$qid) continue;
+                $qid=(int)($ans['q'] ?? 0); if(!$qid || empty($activeIds[$qid])) continue;
                 $sel=$ans['s'] ?? null; $sel=($sel===null||$sel===''||(int)$sel===0)?null:max(1,min(4,(int)$sel));
                 $fl=(int)!empty($ans['f']);
                 $stmt->execute([$attemptId,$qid,$sel,$fl]);
@@ -120,8 +131,9 @@ case 'submit': {
     if (is_array($answers) && $answers) {
         $stmt = db()->prepare('INSERT INTO exam_answers (attempt_id,question_id,selected_opt,flagged) VALUES (?,?,?,?)
             ON DUPLICATE KEY UPDATE selected_opt=VALUES(selected_opt), flagged=VALUES(flagged)');
+        $activeIds = active_exam_question_ids((int)$a['exam_id']);
         foreach ($answers as $ans) {
-            $qid=(int)($ans['q'] ?? 0); if(!$qid) continue;
+            $qid=(int)($ans['q'] ?? 0); if(!$qid || empty($activeIds[$qid])) continue;
             $sel=$ans['s'] ?? null; $sel=($sel===null||$sel===''||(int)$sel===0)?null:max(1,min(4,(int)$sel));
             $stmt->execute([$attemptId,$qid,$sel,(int)!empty($ans['f'])]);
         }

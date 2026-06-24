@@ -11,12 +11,6 @@ $file = basename((string)($_GET['file'] ?? ''));
 if (!$examId || $file === '' || strtolower(pathinfo($file, PATHINFO_EXTENSION)) !== 'pdf') {
     http_response_code(404); exit;
 }
-// Do not allow opening/downloading booklet PDFs directly in a browser tab.
-// The in-exam PDF.js viewer sends this header for authorized inline rendering.
-if (($_SERVER['HTTP_X_MADAR_VIEWER'] ?? '') !== '1') {
-    http_response_code(403); exit;
-}
-
 $exam = get_exam($examId);
 if (!$exam) { http_response_code(404); exit; }
 
@@ -24,7 +18,7 @@ $allowed = false;
 if (in_array($u['role'], ['advisor','admin'], true)) {
     $allowed = $u['role'] === 'admin' || (int)$exam['advisor_id'] === (int)$u['id'];
 } elseif ($u['role'] === 'student') {
-    $allowed = ($exam['status'] === 'published') && ((int)($u['advisor_id'] ?? 0) === (int)$exam['advisor_id']);
+    $allowed = student_exam_is_visible($examId, (int)$u['id']);
 }
 if (!$allowed) { http_response_code(403); exit; }
 
@@ -64,7 +58,9 @@ http_response_code($status);
 header('Content-Type: application/pdf');
 header('Accept-Ranges: bytes');
 header('Content-Length: ' . $length);
-header('Content-Disposition: inline; filename="booklet.pdf"');
+$download = isset($_GET['download']) && (string)$_GET['download'] === '1';
+$disp = $download ? 'attachment' : 'inline';
+header('Content-Disposition: ' . $disp . '; filename="booklet.pdf"');
 header('X-Content-Type-Options: nosniff');
 header('Cache-Control: private, max-age=3600');
 if ($status === 206) header("Content-Range: bytes $start-$end/$size");

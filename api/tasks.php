@@ -13,7 +13,7 @@ require_login();
 require_csrf();
 
 /** نوع‌هایی که در ENUM پایه‌ی قدیمی نبوده‌اند و نیاز به مهاجرت دارند */
-const EXTENDED_TASK_TYPES = ['textbook','descriptive','analysis','special','mock'];
+const EXTENDED_TASK_TYPES = ['study_test','textbook','descriptive','analysis','special','mock'];
 
 $u = current_user();
 $me = (int)$u['id'];
@@ -46,7 +46,8 @@ function default_task_title(string $type, ?int $subjectId = null): string {
         if ($name !== '') {
             return match ($type) {
                 'test' => $name . ' تست',
-                'study' => $name . ' مطالعه',
+                'study_test' => $name . ' درسنامه + تست',
+                'study' => $name . ' درسنامه',
                 'review' => $name . ' مرور',
                 'textbook' => $name . ' کتاب درسی',
                 'descriptive' => $name . ' سوال تشریحی',
@@ -94,10 +95,10 @@ function ensure_extended_task_types(): bool {
         $st = db()->query("SHOW COLUMNS FROM tasks LIKE 'task_type'");
         $col = $st->fetch();
         $type = (string)($col['Type'] ?? '');
-        $hasAll = str_contains($type, "'textbook'") && str_contains($type, "'descriptive'")
+        $hasAll = str_contains($type, "'study_test'") && str_contains($type, "'textbook'") && str_contains($type, "'descriptive'")
                && str_contains($type, "'analysis'") && str_contains($type, "'special'") && str_contains($type, "'mock'");
         if (!$hasAll) {
-            db()->exec("ALTER TABLE tasks MODIFY task_type ENUM('test','study','review','textbook','descriptive','exam','reading','custom','analysis','special','mock') NOT NULL DEFAULT 'study'");
+            db()->exec("ALTER TABLE tasks MODIFY task_type ENUM('test','study','study_test','review','textbook','descriptive','exam','reading','custom','analysis','special','mock') NOT NULL DEFAULT 'study'");
         }
         return $checked = true;
     } catch (Throwable $e) {

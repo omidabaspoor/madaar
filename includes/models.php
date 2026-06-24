@@ -86,7 +86,7 @@ function task_score(array $t): float
 }
 function is_feeling_task(string $type): bool
 {
-    return in_array($type, ['study','review','textbook','reading','analysis','custom'], true);
+    return in_array($type, ['study_test','study','review','textbook','reading','analysis','custom'], true);
 }
 function feeling_info(?string $key): ?array
 {
@@ -566,17 +566,22 @@ function exam_sections(int $examId): array {
     $st->execute([$examId]);
     return $st->fetchAll();
 }
-function ensure_question_number_column(): void {
+function ensure_exam_question_schema(): void {
     static $done = null;
     if ($done !== null) return;
     try {
-        db()->exec("ALTER TABLE exam_questions ADD COLUMN question_number INT UNSIGNED NULL DEFAULT NULL AFTER section_id");
-        $done = true;
-    } catch (Throwable $e) { $done = true; }
+        $cols = [];
+        foreach (db()->query('SHOW COLUMNS FROM exam_questions')->fetchAll() as $c) $cols[$c['Field']] = true;
+        if (empty($cols['question_number'])) db()->exec("ALTER TABLE exam_questions ADD COLUMN question_number INT UNSIGNED NULL DEFAULT NULL AFTER section_id");
+        if (empty($cols['is_cancelled'])) db()->exec("ALTER TABLE exam_questions ADD COLUMN is_cancelled TINYINT(1) NOT NULL DEFAULT 0 AFTER question_number");
+        if (empty($cols['cancelled_at'])) db()->exec("ALTER TABLE exam_questions ADD COLUMN cancelled_at DATETIME DEFAULT NULL AFTER is_cancelled");
+    } catch (Throwable $e) {}
+    $done = true;
 }
+function ensure_question_number_column(): void { ensure_exam_question_schema(); }
 
 function exam_questions(int $examId): array {
-    ensure_question_number_column();
+    ensure_exam_question_schema();
     $st = db()->prepare('SELECT * FROM exam_questions WHERE exam_id=? ORDER BY section_id, COALESCE(question_number, sort_order), sort_order, id');
     $st->execute([$examId]);
     return $st->fetchAll();
@@ -587,7 +592,8 @@ function section_question_count(int $sectionId): int {
     return (int)$st->fetchColumn();
 }
 function exam_question_count(int $examId): int {
-    $st = db()->prepare('SELECT COUNT(*) FROM exam_questions WHERE exam_id=?');
+    ensure_exam_question_schema();
+    $st = db()->prepare('SELECT COUNT(*) FROM exam_questions WHERE exam_id=? AND COALESCE(is_cancelled,0)=0');
     $st->execute([$examId]);
     return (int)$st->fetchColumn();
 }
@@ -618,8 +624,9 @@ function student_exam_is_visible(int $examId, int $studentId): bool {
 
 function student_exams(int $studentId): array {
     ensure_exam_target_schema();
+    ensure_exam_question_schema();
     $sql = "SELECT e.*,
-        (SELECT COUNT(*) FROM exam_questions q WHERE q.exam_id=e.id) AS q_count,
+        (SELECT COUNT(*) FROM exam_questions q WHERE q.exam_id=e.id AND COALESCE(q.is_cancelled,0)=0) AS q_count,
         a.id AS attempt_id, a.status AS attempt_status, a.total_score
         FROM exams e
         JOIN users su ON su.id=?
@@ -670,7 +677,7 @@ function grade_attempt(int $attemptId): array {
     $att = db()->prepare('SELECT * FROM exam_attempts WHERE id=?'); $att->execute([$attemptId]); $a = $att->fetch();
     if (!$a) return [];
     $exam = get_exam((int)$a['exam_id']);
-    $questions = exam_questions((int)$a['exam_id']);
+    $questions = array_values(array_filter(exam_questions((int)$a['exam_id']), fn($q) => empty($q['is_cancelled'])));
     $answers = attempt_answers($attemptId);
     $neg = (int)$exam['negative_marking'];
 
@@ -711,8 +718,9 @@ function exam_results(int $examId): array {
 }
 function advisor_exams(int $advisorId): array {
     ensure_exam_target_schema();
+    ensure_exam_question_schema();
     $st = db()->prepare("SELECT e.*,
-        (SELECT COUNT(*) FROM exam_questions q WHERE q.exam_id=e.id) AS q_count,
+        (SELECT COUNT(*) FROM exam_questions q WHERE q.exam_id=e.id AND COALESCE(q.is_cancelled,0)=0) AS q_count,
         (SELECT COUNT(*) FROM exam_attempts a WHERE a.exam_id=e.id AND a.status='submitted') AS taken_count
         FROM exams e WHERE e.advisor_id=? ORDER BY e.created_at DESC");
     $st->execute([$advisorId]);
@@ -736,6 +744,7 @@ function attempt_report(int $attemptId): ?array {
     $gnum = 0;
     foreach ($sections as $sec) {
         foreach ($questions as $q) {
+            if (!empty($q['is_cancelled'])) continue;
             if ((int)$q['section_id'] !== (int)$sec['id']) continue;
             $gnum++;
             $sid = (int)$sec['id'];

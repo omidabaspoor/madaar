@@ -25,7 +25,7 @@ header('Content-Type: application/json');
 $action = $_GET['action'] ?? '';
 $body = json_decode(file_get_contents('php://input'), true) ?: [];
 $roomId = (int)($_GET['room_id'] ?? ($body['room_id'] ?? 0));
-$myId = (int)($_GET['my_id'] ?? ($body['my_id'] ?? 0));
+$myId = (string)($_GET['my_id'] ?? ($body['my_id'] ?? '')); // peer id مثل p_xxx رشته است، نه عدد
 
 if ($roomId <= 0) {
     echo json_encode(['ok' => false, 'error' => 'invalid_room']);
@@ -42,7 +42,8 @@ if (!$session) {
 $role = $u['role'];
 $me = (int)$u['id'];
 
-if ($role === 'student' && !online_session_student_can_access($roomId, $me)) {
+if (($role === 'student' && !online_session_student_can_access($roomId, $me))
+    || ($role === 'advisor' && (int)($session['advisor_id'] ?? 0) !== $me)) {
     echo json_encode(['ok' => false, 'error' => 'no_access']);
     exit;
 }
@@ -86,18 +87,24 @@ try {
     case 'register': {
         $peerId = 'p_' . bin2hex(random_bytes(8));
         $name = trim((string)($body['name'] ?? $u['full_name']));
-        $isHost = !empty($body['is_host']) ? 1 : 0;
+        // امنیت: کلاینت حق ندارد خودش را میزبان معرفی کند. میزبان فقط مشاور مالک جلسه یا admin است.
+        $isHost = ((int)($session['advisor_id'] ?? 0) === $me || $role === 'admin') ? 1 : 0;
 
         db()->prepare('INSERT INTO session_peers (room_id, peer_id, user_id, user_name, is_host, last_poll) VALUES (?, ?, ?, ?, ?, NOW())
             ON DUPLICATE KEY UPDATE last_poll=NOW(), user_name=VALUES(user_name), is_host=VALUES(is_host)')
             ->execute([$roomId, $peerId, $me, $name, $isHost]);
+
+        if ($role === 'student') {
+            db()->prepare('UPDATE session_participants SET joined_at=COALESCE(joined_at,NOW()), is_present=1 WHERE session_id=? AND student_id=?')
+                ->execute([$roomId, $me]);
+        }
 
         echo json_encode(['ok' => true, 'my_id' => $peerId, 'name' => $name]);
         exit;
     }
 
     case 'poll': {
-        if (!$myId) {
+        if ($myId === '') {
             echo json_encode(['ok' => false, 'error' => 'no_my_id']);
             exit;
         }
@@ -157,7 +164,7 @@ try {
 
     case 'signal': {
         $toPeer = (string)($body['to_peer_id'] ?? '');
-        if (!$myId || !$toPeer) {
+        if ($myId === '' || $toPeer === '') {
             echo json_encode(['ok' => false, 'error' => 'missing_params']);
             exit;
         }
@@ -176,13 +183,17 @@ try {
     }
 
     case 'leave': {
-        if (!$myId) {
+        if ($myId === '') {
             echo json_encode(['ok' => false, 'error' => 'no_my_id']);
             exit;
         }
 
         db()->prepare('DELETE FROM session_peers WHERE room_id=? AND peer_id=?')
             ->execute([$roomId, (string)$myId]);
+        if ($role === 'student') {
+            db()->prepare('UPDATE session_participants SET left_at=NOW(), duration_seconds=TIMESTAMPDIFF(SECOND, joined_at, NOW()) WHERE session_id=? AND student_id=? AND joined_at IS NOT NULL')
+                ->execute([$roomId, $me]);
+        }
         db()->prepare('DELETE FROM session_signals WHERE room_id=? AND (from_peer=? OR to_peer=?)')
             ->execute([$roomId, (string)$myId, (string)$myId]);
 

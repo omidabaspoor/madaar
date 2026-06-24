@@ -321,10 +321,10 @@ function online_session_cancel(int $sessionId, int $advisorId): bool {
             ->execute([$sessionId, $advisorId]);
 
         // اطلاع به همه
-        $stmt = db()->prepare('SELECT user_id FROM session_participants WHERE session_id=?');
+        $stmt = db()->prepare('SELECT student_id FROM session_participants WHERE session_id=?');
         $stmt->execute([$sessionId]);
         foreach ($stmt->fetchAll() as $p) {
-            notify((int)$p['user_id'], '❌ جلسه آنلاین لغو شد', 'جلسه آنلاین توسط مشاور لغو گردید.', 'video', 'student/online_sessions.php');
+            notify((int)$p['student_id'], '❌ جلسه آنلاین لغو شد', 'جلسه آنلاین توسط مشاور لغو گردید.', 'video', 'student/online_sessions.php');
         }
         return true;
     } catch (Throwable $e) {
@@ -369,9 +369,12 @@ function online_session_update_participants(int $sessionId, int $advisorId, arra
 function whiteboard_save(int $sessionId, int $userId, string $json): int {
     if (!online_sessions_schema_ready()) return 0;
     try {
-        db()->prepare('INSERT INTO whiteboard_snapshots (session_id, user_id, snapshot_json, version) VALUES (?, ?, ?, (SELECT COALESCE(MAX(version),0)+1 FROM whiteboard_snapshots WHERE session_id=?))')
-            ->execute([$sessionId, $userId, $json, $sessionId]);
-        return (int)db()->lastInsertId();
+        $stmt = db()->prepare('SELECT COALESCE(MAX(version),0)+1 FROM whiteboard_snapshots WHERE session_id=?');
+        $stmt->execute([$sessionId]);
+        $version = (int)$stmt->fetchColumn();
+        db()->prepare('INSERT INTO whiteboard_snapshots (session_id, user_id, snapshot_json, version) VALUES (?, ?, ?, ?)')
+            ->execute([$sessionId, $userId, $json, $version]);
+        return $version;
     } catch (Throwable $e) {
         error_log('whiteboard_save failed: ' . $e->getMessage());
         return 0;

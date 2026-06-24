@@ -51,6 +51,7 @@ function ensure_exam_studio_schema(): void {
         if (empty($cols['target_grades_json'])) $adds[] = "ADD COLUMN target_grades_json TEXT DEFAULT NULL AFTER target_fields_json";
         if ($adds) db()->exec('ALTER TABLE exams ' . implode(', ', $adds));
     } catch (Throwable $e) { /* schema errors are reported by the actual action if needed */ }
+    try { ensure_exam_question_schema(); } catch (Throwable $e) {}
 }
 ensure_exam_studio_schema();
 
@@ -172,7 +173,7 @@ case 'add_question': {
     $secChk = db()->prepare('SELECT id FROM exam_sections WHERE id=? AND exam_id=?');
     $secChk->execute([$secId, $examId]);
     if (!$secChk->fetch()) json_out(['ok'=>false,'error'=>'بخش نامعتبر است'],422);
-    try { db()->exec("ALTER TABLE exam_questions ADD COLUMN question_number INT UNSIGNED NULL DEFAULT NULL AFTER section_id"); } catch (Throwable $altE) {}
+    ensure_exam_question_schema();
 
     $so = 0; $qnum = null;
     if ($afterId) {
@@ -206,7 +207,7 @@ case 'save_question': {
     $cor = max(1,min(4,(int)($in['correct_opt'] ?? 1)));
     $exp = trim((string)($in['explanation'] ?? '')) ?: null;
     $qnum = isset($in['question_number']) && $in['question_number'] !== '' ? (int)$in['question_number'] : null;
-    try { db()->exec("ALTER TABLE exam_questions ADD COLUMN question_number INT UNSIGNED NULL DEFAULT NULL AFTER section_id"); } catch (Throwable $altE) {}
+    ensure_exam_question_schema();
     db()->prepare('UPDATE exam_questions SET q_text=?,opt1=?,opt2=?,opt3=?,opt4=?,correct_opt=?,explanation=?,question_number=? WHERE id=?')
         ->execute([$txt ?: null,$o1 ?: null,$o2 ?: null,$o3 ?: null,$o4 ?: null,$cor,$exp,$qnum,$id]);
     json_out(['ok'=>true]);
@@ -218,7 +219,7 @@ case 'autosave': {
     if (!own_exam($examId,$me,$u['role'])) json_out(['ok'=>false,'error'=>'آزمون یافت نشد'],404);
     $questions = $in['questions'] ?? [];
     if (!is_array($questions)) $questions = [];
-    try { db()->exec("ALTER TABLE exam_questions ADD COLUMN question_number INT UNSIGNED NULL DEFAULT NULL AFTER section_id"); } catch (Throwable $altE) {}
+    ensure_exam_question_schema();
     $upd = db()->prepare('UPDATE exam_questions SET q_text=?,opt1=?,opt2=?,opt3=?,opt4=?,correct_opt=?,explanation=?,question_number=? WHERE id=? AND exam_id=?');
     $saved = 0;
     db()->beginTransaction();
@@ -247,11 +248,24 @@ case 'autosave': {
 
 case 'delete_question': {
     $id = (int)($in['id'] ?? 0);
+    ensure_exam_question_schema();
     $q = db()->prepare('SELECT q.id, e.advisor_id FROM exam_questions q JOIN exams e ON e.id=q.exam_id WHERE q.id=?');
     $q->execute([$id]); $row = $q->fetch();
     if (!$row || ($u['role']!=='admin' && (int)$row['advisor_id']!==$me)) json_out(['ok'=>false,'error'=>'یافت نشد'],404);
-    db()->prepare('DELETE FROM exam_questions WHERE id=?')->execute([$id]);
-    json_out(['ok'=>true]);
+    // حذف نرم: سوال در دفترچه و پاسخنامه خط می‌خورد، اما در نمره و کارنامه اثر ندارد.
+    db()->prepare('UPDATE exam_questions SET is_cancelled=1, cancelled_at=NOW() WHERE id=?')->execute([$id]);
+    db()->prepare('DELETE FROM exam_answers WHERE question_id=?')->execute([$id]);
+    json_out(['ok'=>true,'cancelled'=>true]);
+}
+
+case 'restore_question': {
+    $id = (int)($in['id'] ?? 0);
+    ensure_exam_question_schema();
+    $q = db()->prepare('SELECT q.id, e.advisor_id FROM exam_questions q JOIN exams e ON e.id=q.exam_id WHERE q.id=?');
+    $q->execute([$id]); $row = $q->fetch();
+    if (!$row || ($u['role']!=='admin' && (int)$row['advisor_id']!==$me)) json_out(['ok'=>false,'error'=>'یافت نشد'],404);
+    db()->prepare('UPDATE exam_questions SET is_cancelled=0, cancelled_at=NULL WHERE id=?')->execute([$id]);
+    json_out(['ok'=>true,'restored'=>true]);
 }
 
 case 'set_status': {
@@ -467,7 +481,7 @@ case 'quick_sheet_generate': {
         $qnum = (int)($ck['question_number'] ?? 0);
         $cor  = (int)($ck['correct_opt'] ?? 0);
         if ($qnum < 1 || $cor < 1 || $cor > 4) return null;
-        return ['question_number'=>$qnum, 'correct_opt'=>$cor];
+        return ['question_number'=>$qnum, 'correct_opt'=>$cor, 'is_cancelled'=>!empty($ck['is_cancelled']) ? 1 : 0];
     }, $customKeys)));
     if ($qCount === 0 && empty($customKeys)) json_out(['ok'=>false, 'error'=>'کلید پاسخنامه معتبر نیست (باید شامل اعداد ۱ تا ۴ باشد)'], 422);
 
@@ -475,7 +489,7 @@ case 'quick_sheet_generate': {
     try {
         try { db()->exec("ALTER TABLE exam_questions ADD COLUMN question_number INT UNSIGNED NULL DEFAULT NULL AFTER section_id"); } catch (Throwable $alterE) {}
         
-        $answerKeyToStore = $cleanKey ?: implode('', array_map(fn($ck) => (string)$ck['correct_opt'], $customKeys));
+        $answerKeyToStore = $cleanKey ?: implode('', array_map(fn($ck) => empty($ck['is_cancelled']) ? (string)$ck['correct_opt'] : '0', $customKeys));
         db()->prepare('UPDATE exams SET creation_mode="quick_sheet", answer_key=? WHERE id=?')->execute([$answerKeyToStore, $examId]);
         if ($sheetPath && !$e['sheet_path']) {
             db()->prepare('UPDATE exams SET sheet_path=? WHERE id=?')->execute([$sheetPath, $examId]);
@@ -488,20 +502,21 @@ case 'quick_sheet_generate': {
         
         $questionImage = sheet_asset_type($sheetPath) === 'image' ? $sheetPath : null;
 
-        $ins = db()->prepare('INSERT INTO exam_questions (exam_id, section_id, q_text, q_image, correct_opt, sort_order, question_number) VALUES (?, ?, ?, ?, ?, ?, ?)');
+        $ins = db()->prepare('INSERT INTO exam_questions (exam_id, section_id, q_text, q_image, correct_opt, sort_order, question_number, is_cancelled, cancelled_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
         
         if (!empty($customKeys)) {
             $so = 1;
             foreach ($customKeys as $ck) {
                 $qnum = (int)($ck['question_number'] ?? $so);
                 $cor  = (int)($ck['correct_opt'] ?? 1);
-                $ins->execute([$examId, $secId, 'سوال ' . fa_num($qnum), $questionImage, $cor, $so++, $qnum]);
+                $cancelled = !empty($ck['is_cancelled']) ? 1 : 0;
+                $ins->execute([$examId, $secId, 'سوال ' . fa_num($qnum), $questionImage, $cor, $so++, $qnum, $cancelled, $cancelled ? date('Y-m-d H:i:s') : null]);
             }
-            $qCount = count($customKeys);
+            $qCount = count(array_filter($customKeys, fn($ck)=>empty($ck['is_cancelled'])));
         } else {
             for ($i = 0; $i < $qCount; $i++) {
                 $cor = (int)$cleanKey[$i];
-                $ins->execute([$examId, $secId, 'سوال ' . fa_num($i + 1), $questionImage, $cor, $i + 1, $i + 1]);
+                $ins->execute([$examId, $secId, 'سوال ' . fa_num($i + 1), $questionImage, $cor, $i + 1, $i + 1, 0, null]);
             }
         }
         db()->commit();

@@ -80,6 +80,21 @@ function icon(string $name, int $size = 22, string $cls = ''): string
         'download'  => '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/>',
         'refresh'   => '<path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
         'history'   => '<path d="M12 2v4l3 3"/><path d="M3.05 11a9 9 0 1 1 .5 4L2 17"/>',
+
+        'video'     => '<path d="M4 7a3 3 0 0 1 3-3h7a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V7z"/><path d="M17 10l5-3v10l-5-3z"/>',
+        'phone-off' => '<path d="M3 5l16 16"/><path d="M8.5 10.5c1.2 2.4 2.8 4 5 5.1l2-2a1.5 1.5 0 0 1 1.6-.35c1 .35 2 .55 3 .55a1.5 1.5 0 0 1 1.5 1.5v3.1a1.5 1.5 0 0 1-1.6 1.5C10.8 19.6 4.4 13.2 4.1 4A1.5 1.5 0 0 1 5.6 2.4h3.1A1.5 1.5 0 0 1 10.2 4c0 1 .2 2 .55 3a1.5 1.5 0 0 1-.35 1.6l-1.9 1.9z"/>',
+        'sidebar'   => '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16M13 9h4M13 13h4"/>',
+        'eraser'    => '<path d="M21 21H9l-6-6a2 2 0 0 1 0-3l7-7a2 2 0 0 1 3 0l8 8a2 2 0 0 1 0 3l-5 5"/><path d="M7 11l6 6"/>',
+        'minus'     => '<path d="M5 12h14"/>',
+        'square'    => '<rect x="5" y="5" width="14" height="14" rx="2"/>',
+        'circle'    => '<circle cx="12" cy="12" r="7"/>',
+        'x'         => '<path d="M18 6L6 18M6 6l12 12"/>',
+        'monitor'   => '<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>',
+        'hand'      => '<path d="M8 13V6a1.7 1.7 0 0 1 3.4 0v6M11.4 12V4.8a1.7 1.7 0 0 1 3.4 0V12M14.8 12V6.2a1.7 1.7 0 0 1 3.4 0V14"/><path d="M8 13l-1.5-2a1.7 1.7 0 0 0-2.8 1.9l3.4 5A6 6 0 0 0 12 20h2a6 6 0 0 0 6-6"/>',
+        'smile'     => '<circle cx="12" cy="12" r="9"/><path d="M8.5 14.5s1.2 2 3.5 2 3.5-2 3.5-2M9 9h.01M15 9h.01"/>',
+        'pdf'       => '<path d="M14 3v5h5"/><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z"/><path d="M8 16v-4h2a1.2 1.2 0 0 1 0 2H8M12 16v-4h1.2c1.6 0 2.8 1 2.8 2s-1.2 2-2.8 2H12"/>',
+        'maximize'  => '<path d="M8 3H3v5M16 3h5v5M8 21H3v-5M21 16v5h-5"/><path d="M3 3l6 6M21 3l-6 6M3 21l6-6M21 21l-6-6"/>',
+        'sliders'   => '<path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
         'database'  => '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>',
     ];
     $p = $paths[$name] ?? $paths['info'];

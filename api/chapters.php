@@ -15,6 +15,41 @@ $json = str_contains($_SERVER['CONTENT_TYPE'] ?? '', 'application/json') ? body_
 $in = array_merge($_POST, $json);
 $action = (string)($in['action'] ?? '');
 
+function planner_exact_lesson_groups(string $subjectName): ?array {
+    $key = normalize_subject_for_chapters($subjectName) ?? $subjectName;
+    $make = function(string $book, array $lessons): array {
+        $rows = [];
+        foreach ($lessons as $i => $name) {
+            $rows[] = ['book_name'=>$book, 'chapter_name'=>$name, 'sort_order'=>$i, 'display_order'=>$i + 1, 'is_lesson'=>1];
+        }
+        return $rows;
+    };
+    if ($key === 'فارسی') {
+        return [
+            'فارسی (۱)' => $make('فارسی (۱)', ['چشمه','از آموختن، ننگ مدار','پاسداری از حقیقت','درس آزاد','بیداد ظالمان','مهر و وفا','جمال و کمال','سفر به بصره','کلاس نقاشی','دریادلان صف‌شکن','خاک آزادگان','رستم و اشکبوس','گردآفرید','طوطی و بقال','درس آزاد','خسرو','سپیده‌دم','عظمت نگاه']),
+            'فارسی (۲)' => $make('فارسی (۲)', ['نیکی','قاضی بُست','در امواج سند','درس آزاد','آغازگری تنها','پروردۀ عشق','باران محبّت','در کوی عاشقان','ذوق لطیف','بانگ جَرَس','یاران عاشق','کاوۀ دادخواه','درس آزاد','حملۀ حیدری','کبوتر طوق‌دار','قصّۀ عینکم','خاموشی دریا','خوان عدل']),
+            'فارسی (۳)' => $make('فارسی (۳)', ['شکرِ نعمت','مست و هُشیار','آزادی','درس آزاد','دماوندیه','نی‌نامه','در حقیقت عشق','از پاریز تا پاریس','کویر','فصل شکوفایی','آن شب عزیز','گذر سیاوش از آتش','خوانِ هشتم','سی‌مرغ و سیمرغ','درس آزاد','کباب غاز','خندۀ تو','عشق جاودانی']),
+        ];
+    }
+    if ($key === 'سلامت و بهداشت') {
+        return [
+            'سلامت و بهداشت' => $make('سلامت و بهداشت', ['سلامت چیست؟','سبک زندگی سالم','برنامه غذایی سالم','کنترل وزن و تناسب اندام','بهداشت و ایمنی مواد غذایی','بیماری‌های غیرواگیر','بیماری‌های واگیردار','بهداشت فردی','بهداشت ازدواج و فرزندآوری','بهداشت روان','مصرف دخانیات و الکل','اعتیاد به مواد مخدر و عوارض آن','پیشگیری از اختلالات اسکلتی-عضلانی (کمر درد)','پیشگیری از حوادث خانگی']),
+        ];
+    }
+    return null;
+}
+function planner_mark_lesson_groups(array $chapters, string $subjectName): array {
+    $key = normalize_subject_for_chapters($subjectName) ?? $subjectName;
+    if (in_array($key, ['عربی، زبان قرآن','فارسی','سلامت و بهداشت'], true)) {
+        foreach ($chapters as &$items) {
+            foreach ($items as &$r) { $r['is_lesson'] = 1; $r['display_order'] = ((int)($r['sort_order'] ?? 0)) + 1; }
+            unset($r);
+        }
+        unset($items);
+    }
+    return $chapters;
+}
+
 try {
     switch ($action) {
 
@@ -34,8 +69,11 @@ try {
 
         $field = $stu['field'] ?? '';
 
-        $chapters = chapters_for_subject($subjectName, $field);
-        json_out(['ok'=>true,'chapters'=>$chapters,'subject_name'=>$subjectName,'field'=>$field]);
+        $chapters = planner_exact_lesson_groups($subjectName) ?? chapters_for_subject($subjectName, $field);
+        $chapters = planner_mark_lesson_groups($chapters, $subjectName);
+        $subjectKey = normalize_subject_for_chapters($subjectName) ?? $subjectName;
+        $isLessonMode = in_array($subjectKey, ['عربی، زبان قرآن','فارسی','سلامت و بهداشت'], true);
+        json_out(['ok'=>true,'chapters'=>$chapters,'subject_name'=>$subjectName,'field'=>$field,'lesson_mode'=>$isLessonMode,'multi_select'=>$isLessonMode]);
     }
 
     /* ============ لیست فصل‌ها (برای صفحه تنظیمات) ============ */

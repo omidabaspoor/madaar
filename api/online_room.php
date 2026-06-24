@@ -81,6 +81,33 @@ function out($d, $code = 200) {
     exit;
 }
 
+
+function online_room_permission_schema(): void {
+    try {
+        db()->exec("CREATE TABLE IF NOT EXISTS session_permission_requests (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            session_id INT UNSIGNED NOT NULL,
+            user_id INT UNSIGNED NOT NULL,
+            user_name VARCHAR(120) NOT NULL,
+            permission_type VARCHAR(20) NOT NULL,
+            status ENUM('pending','approved','denied') NOT NULL DEFAULT 'pending',
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            decided_at DATETIME NULL,
+            decided_by INT UNSIGNED NULL,
+            PRIMARY KEY (id),
+            KEY idx_perm_session (session_id, status, created_at),
+            KEY idx_perm_user (session_id, user_id, created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    } catch (Throwable $e) { error_log('permission schema failed: '.$e->getMessage()); }
+}
+
+function online_room_api_can_access(array $session, string $role, int $me): bool {
+    if ($role === 'admin') return true;
+    if ($role === 'advisor') return (int)($session['advisor_id'] ?? 0) === $me;
+    if ($role === 'student') return online_session_student_can_access((int)$session['id'], $me);
+    return false;
+}
+
 try {
 switch ($action) {
 
@@ -92,7 +119,7 @@ case 'chat_send': {
     $session = online_session_get($sessionId);
     if (!$session) out(['ok'=>false, 'error'=>'جلسه یافت نشد', 'code'=>'not_found'], 404);
 
-    if ($role === 'student' && !online_session_student_can_access($sessionId, $me)) {
+    if (!online_room_api_can_access($session, $role, $me)) {
         out(['ok'=>false, 'error'=>'دسترسی ندارید', 'code'=>'forbidden'], 403);
     }
     if (empty($session['allow_chat']) && $role !== 'admin' && $role !== 'advisor') {
@@ -116,7 +143,7 @@ case 'chat_list': {
     $session = online_session_get($sessionId);
     if (!$session) out(['ok'=>true, 'messages'=>[], 'note'=>'جلسه یافت نشد']);
 
-    if ($role === 'student' && !online_session_student_can_access($sessionId, $me)) {
+    if (!online_room_api_can_access($session, $role, $me)) {
         out(['ok'=>true, 'messages'=>[], 'note'=>'دسترسی ندارید']);
     }
 
@@ -133,10 +160,10 @@ case 'whiteboard_save': {
     $session = online_session_get($sessionId);
     if (!$session) out(['ok'=>false, 'error'=>'جلسه یافت نشد', 'code'=>'not_found'], 404);
 
-    if ($role === 'student' && !online_session_student_can_access($sessionId, $me)) {
+    if (!online_room_api_can_access($session, $role, $me)) {
         out(['ok'=>false, 'error'=>'دسترسی ندارید', 'code'=>'forbidden'], 403);
     }
-    if (empty($session['allow_whiteboard']) && $role !== 'admin') {
+    if (empty($session['allow_whiteboard']) && $role !== 'admin' && (int)$session['advisor_id'] !== $me) {
         out(['ok'=>false, 'error'=>'تخته غیرفعال است', 'code'=>'wb_disabled'], 403);
     }
     if ($session['status'] === 'ended' || $session['status'] === 'cancelled') {
@@ -156,7 +183,7 @@ case 'whiteboard_load': {
     $session = online_session_get($sessionId);
     if (!$session) out(['ok'=>true, 'snapshot'=>null]);
 
-    if ($role === 'student' && !online_session_student_can_access($sessionId, $me)) {
+    if (!online_room_api_can_access($session, $role, $me)) {
         out(['ok'=>true, 'snapshot'=>null]);
     }
 
@@ -172,7 +199,7 @@ case 'hand_toggle': {
     $session = online_session_get($sessionId);
     if (!$session) out(['ok'=>false, 'error'=>'جلسه یافت نشد', 'code'=>'not_found'], 404);
 
-    if ($role === 'student' && !online_session_student_can_access($sessionId, $me)) {
+    if (!online_room_api_can_access($session, $role, $me)) {
         out(['ok'=>false, 'error'=>'دسترسی ندارید', 'code'=>'forbidden'], 403);
     }
     if ($session['status'] !== 'live') {
@@ -217,7 +244,7 @@ case 'reaction_send': {
     $session = online_session_get($sessionId);
     if (!$session) out(['ok'=>false, 'error'=>'جلسه یافت نشد', 'code'=>'not_found'], 404);
 
-    if ($role === 'student' && !online_session_student_can_access($sessionId, $me)) {
+    if (!online_room_api_can_access($session, $role, $me)) {
         out(['ok'=>false, 'error'=>'دسترسی ندارید', 'code'=>'forbidden'], 403);
     }
     if ($session['status'] !== 'live') {
@@ -227,6 +254,102 @@ case 'reaction_send': {
     $type = trim((string)($body['reaction_type'] ?? 'clap'));
     session_reaction_send($sessionId, $me, $u['full_name'], $type);
     out(['ok'=>true]);
+}
+
+
+case 'reactions_list': {
+    $sessionId = (int)($body['session_id'] ?? 0);
+    $session = online_session_get($sessionId);
+    if (!$session) out(['ok'=>true, 'reactions'=>[]]);
+
+    if (!online_room_api_can_access($session, $role, $me)) {
+        out(['ok'=>true, 'reactions'=>[]]);
+    }
+
+    $reactions = session_reactions_recent($sessionId, 2);
+    out(['ok'=>true, 'reactions'=>$reactions ?: []]);
+}
+
+
+// ============================================
+// CLASS MANAGEMENT / PERMISSIONS
+// ============================================
+case 'update_permissions': {
+    $sessionId = (int)($body['session_id'] ?? 0);
+    $session = online_session_get($sessionId);
+    if (!$session) out(['ok'=>false, 'error'=>'جلسه یافت نشد', 'code'=>'not_found'], 404);
+    if ((int)$session['advisor_id'] !== $me && $role !== 'admin') out(['ok'=>false, 'error'=>'دسترسی ندارید', 'code'=>'forbidden'], 403);
+    $map = ['mic'=>'allow_student_mic','cam'=>'allow_student_cam','screen'=>'allow_screen_share','whiteboard'=>'allow_whiteboard','chat'=>'allow_chat'];
+    $data = [];
+    foreach ($map as $k=>$col) if (array_key_exists($k, $body)) $data[$col] = !empty($body[$k]) ? 1 : 0;
+    if (!$data) out(['ok'=>false, 'error'=>'موردی برای ذخیره نیست'], 422);
+    $ok = online_session_update($sessionId, (int)$session['advisor_id'], $data);
+    out(['ok'=>$ok]);
+}
+
+
+case 'permissions_state': {
+    $sessionId = (int)($body['session_id'] ?? 0);
+    $session = online_session_get($sessionId);
+    if (!$session || !online_room_api_can_access($session, $role, $me)) out(['ok'=>false], 403);
+    out(['ok'=>true, 'permissions'=>[
+        'mic'=>(bool)$session['allow_student_mic'],
+        'cam'=>(bool)$session['allow_student_cam'],
+        'screen'=>(bool)$session['allow_screen_share'],
+        'whiteboard'=>(bool)$session['allow_whiteboard'],
+        'chat'=>(bool)$session['allow_chat'],
+    ]]);
+}
+
+case 'permission_request': {
+    online_room_permission_schema();
+    $sessionId = (int)($body['session_id'] ?? 0);
+    $type = (string)($body['permission_type'] ?? '');
+    $allowed = ['mic','cam','screen','whiteboard'];
+    $session = online_session_get($sessionId);
+    if (!$session) out(['ok'=>false, 'error'=>'جلسه یافت نشد'], 404);
+    if (!online_room_api_can_access($session, $role, $me)) out(['ok'=>false, 'error'=>'دسترسی ندارید'], 403);
+    if (!in_array($type, $allowed, true)) out(['ok'=>false, 'error'=>'درخواست نامعتبر'], 422);
+    if ($role !== 'student') out(['ok'=>false, 'error'=>'این درخواست فقط برای دانش‌آموز است'], 422);
+    db()->prepare('INSERT INTO session_permission_requests (session_id,user_id,user_name,permission_type) VALUES (?,?,?,?)')
+        ->execute([$sessionId, $me, $u['full_name'], $type]);
+    out(['ok'=>true, 'message'=>'درخواست برای مشاور ارسال شد.']);
+}
+
+case 'permission_list': {
+    online_room_permission_schema();
+    $sessionId = (int)($body['session_id'] ?? 0);
+    $session = online_session_get($sessionId);
+    if (!$session) out(['ok'=>true, 'requests'=>[]]);
+    if ((int)$session['advisor_id'] !== $me && $role !== 'admin') out(['ok'=>true, 'requests'=>[]]);
+    $st = db()->prepare('SELECT * FROM session_permission_requests WHERE session_id=? AND status="pending" ORDER BY created_at ASC LIMIT 20');
+    $st->execute([$sessionId]);
+    out(['ok'=>true, 'requests'=>$st->fetchAll() ?: []]);
+}
+
+case 'permission_decide': {
+    online_room_permission_schema();
+    $sessionId = (int)($body['session_id'] ?? 0);
+    $requestId = (int)($body['request_id'] ?? 0);
+    $decision = (($body['decision'] ?? '') === 'approved') ? 'approved' : 'denied';
+    $session = online_session_get($sessionId);
+    if (!$session) out(['ok'=>false, 'error'=>'جلسه یافت نشد'], 404);
+    if ((int)$session['advisor_id'] !== $me && $role !== 'admin') out(['ok'=>false, 'error'=>'دسترسی ندارید'], 403);
+    db()->prepare('UPDATE session_permission_requests SET status=?, decided_at=NOW(), decided_by=? WHERE id=? AND session_id=? AND status="pending"')
+        ->execute([$decision, $me, $requestId, $sessionId]);
+    out(['ok'=>true]);
+}
+
+case 'permission_status': {
+    online_room_permission_schema();
+    $sessionId = (int)($body['session_id'] ?? 0);
+    $afterId = (int)($body['after_id'] ?? 0);
+    $session = online_session_get($sessionId);
+    if (!$session || $role !== 'student') out(['ok'=>true, 'requests'=>[]]);
+    if (!online_session_student_can_access($sessionId, $me)) out(['ok'=>true, 'requests'=>[]]);
+    $st = db()->prepare('SELECT * FROM session_permission_requests WHERE session_id=? AND user_id=? AND id>? AND status<>"pending" ORDER BY id ASC LIMIT 20');
+    $st->execute([$sessionId, $me, $afterId]);
+    out(['ok'=>true, 'requests'=>$st->fetchAll() ?: []]);
 }
 
 // ============================================

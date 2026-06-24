@@ -176,7 +176,7 @@ panel_start('برنامه‌ریز هفتگی', '', 'admin', 'plans', ['builder.
       <input type="hidden" name="id" id="taskId">
       <input type="hidden" name="day_index" id="taskDay">
       <input type="hidden" name="unit_index" id="taskUnit">
-      <input type="hidden" name="task_type" id="taskType" value="study">
+      <input type="hidden" name="task_type" id="taskType" value="study_test">
 
       <div class="tm-grid">
         <!-- ستون راست: درس + نوع + پیش‌فرض‌ها -->
@@ -203,7 +203,7 @@ panel_start('برنامه‌ریز هفتگی', '', 'admin', 'plans', ['builder.
             <label><?= icon('tasks',15) ?> نوع تسک</label>
             <div class="type-grid" id="typeGrid">
               <?php foreach (TASK_TYPES as $k=>$tt): ?>
-              <div class="type-opt <?= $k==='study'?'active':'' ?>" data-type="<?= $k ?>">
+              <div class="type-opt <?= $k==='study_test'?'active':'' ?>" data-type="<?= $k ?>">
                 <span class="icon-tile <?= in_array($k,['test','exam'])?'':'sage' ?>"><?= icon($tt['icon'],18) ?></span>
                 <div class="t"><?= e($tt['label']) ?></div>
               </div>
@@ -211,31 +211,6 @@ panel_start('برنامه‌ریز هفتگی', '', 'admin', 'plans', ['builder.
             </div>
           </div>
 
-          <div class="field">
-            <label><?= icon('zap',15) ?> تسک‌های آماده <span class="muted">(یک‌کلیک، خودکار پر می‌شود)</span></label>
-            <div class="quick-presets" id="quickPresets">
-              <button type="button" data-preset="study_test30"><?= icon('book',12) ?> درسنامه + ۳۰ تست</button>
-              <button type="button" data-preset="study_test35"><?= icon('book',12) ?> درسنامه + ۳۵ تست</button>
-              <button type="button" data-preset="study_test40"><?= icon('book',12) ?> درسنامه + ۴۰ تست</button>
-              <button type="button" data-preset="class_video"><?= icon('play',12) ?> مطابق کلاس/ویدیو</button>
-              <button type="button" data-preset="test_bank"><?= icon('list',12) ?> بانک تست</button>
-              <button type="button" data-preset="analysis"><?= icon('chart',12) ?> تحلیل آزمون</button>
-              <button type="button" data-preset="mock"><?= icon('clipboard',12) ?> آزمون</button>
-              <button type="button" data-preset="test20"><?= icon('check',12) ?> ۲۰ تست</button>
-              <button type="button" data-preset="test30"><?= icon('check',12) ?> ۳۰ تست</button>
-              <button type="button" data-preset="test40"><?= icon('check',12) ?> ۴۰ تست</button>
-              <button type="button" data-preset="test50"><?= icon('check',12) ?> ۵۰ تست</button>
-              <button type="button" data-preset="study60"><?= icon('book',12) ?> مطالعه ۶۰د</button>
-              <button type="button" data-preset="study90"><?= icon('book',12) ?> مطالعه ۹۰د</button>
-              <button type="button" data-preset="textbook"><?= icon('book',12) ?> کتاب درسی</button>
-              <button type="button" data-preset="errorbook"><?= icon('repeat',12) ?> غلط‌نامه</button>
-              <button type="button" data-preset="review45"><?= icon('repeat',12) ?> مرور ۴۵د</button>
-              <button type="button" data-preset="review15"><?= icon('repeat',12) ?> مرور ویژه ۱۵د</button>
-              <button type="button" data-preset="desc"><?= icon('edit',12) ?> تشریحی</button>
-              <button type="button" data-preset="reading"><?= icon('glasses',12) ?> روزخوانی ۱س</button>
-              <button type="button" data-preset="exam"><?= icon('clipboard',12) ?> آزمونک ۵۰د</button>
-            </div>
-          </div>
         </section>
 
         <!-- ستون چپ: جزئیات (خودکار پر شده، قابل ویرایش) -->
@@ -245,19 +220,9 @@ panel_start('برنامه‌ریز هفتگی', '', 'admin', 'plans', ['builder.
             <input class="input" id="f_title" name="title" placeholder="با انتخاب درس خودکار پر می‌شود — مثلاً «زیست ف۴»">
             <div class="chap-picker-wrap" id="chapPickerWrap" hidden>
               <button type="button" class="btn btn-sage btn-sm" id="chapPickerBtn">
-                <?= icon('book-open',15) ?> انتخاب فصل از کتاب درسی
+                <?= icon('book-open',15) ?> انتخاب فصل / درس از کتاب درسی
               </button>
               <span class="muted" style="font-size:.74rem">بر اساس رشته‌ی <?= e($student['field'] ?: '—') ?> (همه پایه‌ها)</span>
-            </div>
-            <div class="chap-quick" id="chapQuick" hidden>
-              <span class="muted">فصل سریع:</span>
-              <button type="button" data-chap="ف۱">ف۱</button>
-              <button type="button" data-chap="ف۲">ف۲</button>
-              <button type="button" data-chap="ف۳">ف۳</button>
-              <button type="button" data-chap="ف۴">ف۴</button>
-              <button type="button" data-chap="ف۵">ف۵</button>
-              <button type="button" data-chap="ف۶">ف۶</button>
-              <button type="button" data-chap="ف۷">ف۷</button>
             </div>
           </div>
 
@@ -323,7 +288,7 @@ panel_start('برنامه‌ریز هفتگی', '', 'admin', 'plans', ['builder.
             <div class="task-pill" id="previewPill" style="cursor:default">
               <span class="tp-title" id="pvTitle">تسک</span>
               <span class="tp-meta" id="pvMeta"></span>
-              <span class="tp-type" id="pvType">مطالعه</span>
+              <span class="tp-type" id="pvType">درسنامه + تست</span>
             </div>
           </div>
         </section>
@@ -343,8 +308,8 @@ panel_start('برنامه‌ریز هفتگی', '', 'admin', 'plans', ['builder.
   <div class="modal chapter-picker-modal">
     <div class="modal-head">
       <div>
-        <h3><?= icon('book-open',20) ?> انتخاب فصل</h3>
-        <span class="muted" style="font-size:.78rem">کتاب و فصل موردنظر را انتخاب کنید؛ عنوان تسک خودکار پر می‌شود</span>
+        <h3><?= icon('book-open',20) ?> انتخاب فصل / درس</h3>
+        <span class="muted" style="font-size:.78rem">کتاب و فصل یا درس‌های موردنظر را انتخاب کنید؛ عنوان تسک خودکار پر می‌شود</span>
       </div>
       <button class="modal-close" data-close><?= icon('close',18) ?></button>
     </div>
@@ -353,6 +318,7 @@ panel_start('برنامه‌ریز هفتگی', '', 'admin', 'plans', ['builder.
     </div>
     <div class="chapter-picker-footer">
       <button type="button" class="btn btn-ghost btn-sm" data-close>بستن</button>
+      <button type="button" class="btn btn-gold btn-sm" id="applyChapterSelectionBtn"><?= icon('check',15) ?> ثبت انتخاب</button>
     </div>
   </div>
 </div>

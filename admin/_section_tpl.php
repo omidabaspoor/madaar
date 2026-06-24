@@ -10,7 +10,7 @@ $secQs = $qBySection[(int)$sec['id']] ?? [];
       <input class="input sec-dur-input timing-section font-mono text-center" data-sec-dur type="number" min="1" value="<?= e($sec['duration_min'] ?? '') ?>" placeholder="دقیقه" style="w: 100px;">
     </div>
     <div class="flex items-center gap-2 wrap">
-      <span class="badge sec-count"><?= fa_num(count($secQs)) ?> سوال</span>
+      <span class="badge sec-count"><?= fa_num(count(array_filter($secQs, fn($x)=>empty($x['is_cancelled'])))) ?> سوال فعال</span>
       <button type="button" onclick="renumberSectionQuestions(<?= (int)$sec['id'] ?>)" class="btn btn-ghost btn-sm flex items-center gap-1.5" style="border-color:var(--gold); color:var(--gold-light); font-weight:bold;">
         <?= icon('settings',14) ?> <span>تنظیم شماره شروع سوالات</span>
       </button>
@@ -22,7 +22,8 @@ $secQs = $qBySection[(int)$sec['id']] ?? [];
     <?php foreach ($secQs as $idx=>$q): 
         $realNum = $q['question_number'] !== null ? (int)$q['question_number'] : ($idx + 1);
     ?>
-    <div class="q-card panel card" data-question="<?= (int)$q['id'] ?>" style="background:var(--surface-1);">
+    <div class="q-card panel card <?= !empty($q['is_cancelled'])?'q-cancelled':'' ?>" data-question="<?= (int)$q['id'] ?>" data-cancelled="<?= !empty($q['is_cancelled'])?'1':'0' ?>" style="background:var(--surface-1);">
+      <?php if(!empty($q['is_cancelled'])): ?><div class="q-cancel-banner"><?= icon('close',14) ?> این سوال خط خورده و در نمره محاسبه نمی‌شود.</div><?php endif; ?>
       <div class="q-top flex items-center gap-3 wrap mb-3 border-b border-surface-2 pb-3">
         <div class="flex items-center gap-1">
           <span style="font-size:12px; color:var(--text-3); font-weight:bold;">شماره:</span>
@@ -32,7 +33,8 @@ $secQs = $qBySection[(int)$sec['id']] ?? [];
         <div class="q-tools flex items-center gap-1">
           <button type="button" class="btn btn-ghost btn-sm" data-insert-question-after data-tip="افزودن سوال بعد از این" style="border-color:rgba(203,172,128,.35);color:var(--gold-light);font-weight:900">+ بین</button>
           <label class="btn btn-ghost btn-sm q-img-btn" data-tip="افزودن عکس ضمیمه"><?= icon('paperclip',16) ?><input type="file" accept="image/*" data-q-img hidden></label>
-          <button type="button" class="btn btn-ghost btn-sm btn-icon" data-del-question data-tip="حذف کامل سوال" style="color:var(--danger)"><?= icon('trash',15) ?></button>
+          <button type="button" class="btn btn-ghost btn-sm" data-restore-question data-tip="فعال‌کردن دوباره سوال" style="color:var(--sage-light);<?= !empty($q['is_cancelled'])?'':'display:none' ?>"><?= icon('refresh',15) ?> فعال</button>
+          <button type="button" class="btn btn-ghost btn-sm btn-icon" data-del-question data-tip="خط‌زدن سوال" style="color:var(--danger);<?= !empty($q['is_cancelled'])?'display:none':'' ?>"><?= icon('trash',15) ?></button>
         </div>
       </div>
       <div class="q-img-preview <?= $q['q_image']?'':'hidden' ?>" data-q-img-preview>

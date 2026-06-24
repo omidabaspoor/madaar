@@ -208,7 +208,8 @@ function get_flashes(): array { $f = $_SESSION['_flash'] ?? []; unset($_SESSION[
 const DAY_NAMES  = ['شنبه','یک‌شنبه','دوشنبه','سه‌شنبه','چهارشنبه','پنج‌شنبه','جمعه'];
 const UNIT_NAMES = [1=>'واحد اول',2=>'واحد دوم',3=>'واحد سوم',4=>'واحد چهارم',5=>'واحد پنجم',6=>'واحد ششم',7=>'واحد هفتم',8=>'واحد ویژه'];
 const TASK_TYPES = [
-  'study'       => ['label'=>'مطالعه/درسنامه','icon'=>'book'],
+  'study_test'  => ['label'=>'درسنامه + تست','icon'=>'book-open'],
+  'study'       => ['label'=>'درسنامه','icon'=>'book'],
   'test'        => ['label'=>'تست','icon'=>'check'],
   'review'      => ['label'=>'مرور','icon'=>'repeat'],
   'textbook'    => ['label'=>'کتاب درسی','icon'=>'book'],
