@@ -122,7 +122,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   title         VARCHAR(160) NOT NULL,           -- مثلا «زیست ف۴»
   description   VARCHAR(255) DEFAULT NULL,
   source        VARCHAR(120) DEFAULT NULL,        -- منبع آزاد (کتاب، آزمون ماز، …)
-  task_type     ENUM('test','study','review','textbook','descriptive','exam','reading','custom','analysis','special','mock') NOT NULL DEFAULT 'study',
+  task_type     ENUM('test','study',
+    'study_test','review','textbook','descriptive','exam','reading','custom','analysis','special','mock') NOT NULL DEFAULT 'study',
   day_index     TINYINT UNSIGNED NOT NULL,       -- 0..6
   unit_index    TINYINT UNSIGNED NOT NULL DEFAULT 1, -- 1..8 (8=ویژه)
   target_count  INT UNSIGNED DEFAULT NULL,       -- مثلا 40 تست
@@ -310,6 +311,9 @@ CREATE TABLE IF NOT EXISTS exam_questions (
   id              INT UNSIGNED NOT NULL AUTO_INCREMENT,
   exam_id         INT UNSIGNED NOT NULL,
   section_id      INT UNSIGNED NOT NULL,
+  question_number INT UNSIGNED NULL DEFAULT NULL,
+  is_cancelled    TINYINT(1) NOT NULL DEFAULT 0,
+  cancelled_at    DATETIME DEFAULT NULL,
   q_text          TEXT DEFAULT NULL,
   q_image         VARCHAR(255) DEFAULT NULL,
   opt1            VARCHAR(500) DEFAULT NULL,

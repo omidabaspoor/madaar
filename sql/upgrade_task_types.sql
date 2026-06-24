@@ -6,4 +6,4 @@
 SET NAMES utf8mb4;
 
 ALTER TABLE tasks
-  MODIFY task_type ENUM('test','study','review','textbook','descriptive','exam','reading','custom') NOT NULL DEFAULT 'study';
+  MODIFY task_type ENUM('test','study','study_test','review','textbook','descriptive','exam','reading','custom') NOT NULL DEFAULT 'study';

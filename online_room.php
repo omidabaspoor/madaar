@@ -68,13 +68,21 @@ try {
                 $role = $u['role'] ?? 'student';
                 $isHost = ((int)$session['advisor_id'] === (int)$u['id']) || $role === 'admin';
 
-                // === بررسی دسترسی دانش‌آموز ===
+                // === بررسی دسترسی ===
+                $accessDenied = false;
                 if ($role === 'student' && !online_session_student_can_access($sessionId, (int)$u['id'])) {
+                    $accessDenied = true;
+                    $redirectUrl = url('student/online_sessions.php');
+                    $errorMessage = 'شما به این جلسه دعوت نشده‌اید. اگر فکر می‌کنید اشتباه است، با مشاور خود تماس بگیرید.';
+                } elseif ($role === 'advisor' && !$isHost) {
+                    $accessDenied = true;
+                    $redirectUrl = url('admin/online_sessions.php');
+                    $errorMessage = 'فقط مشاورِ سازنده‌ی جلسه یا مدیر ارشد می‌تواند وارد این اتاق شود.';
+                }
+                if ($accessDenied) {
                     http_response_code(403);
                     $errorMode = true;
                     $errorTitle = 'دسترسی ندارید';
-                    $errorMessage = 'شما به این جلسه دعوت نشده‌اید. اگر فکر می‌کنید اشتباه است، با مشاور خود تماس بگیرید.';
-                    $redirectUrl = url('student/online_sessions.php');
                     $redirectText = 'بازگشت';
                 } else {
                     // === همه چیز اوکی - رندر اتاق ===
@@ -141,9 +149,11 @@ body{display:grid;place-items:center;min-height:100vh;background:#0c1512;color:#
 $jitsiServer = defined('JITSI_SERVER_URL') ? JITSI_SERVER_URL : 'https://meet.jit.si';
 $useFallback = false; // اگر Jitsi در دسترس نیست، true کنید
 
-// === تنظیمات P2P ===
-// اگر می‌خواهید از P2P WebRTC استفاده کنید (بدون Jitsi)، true کنید
-$useP2P = !empty($_GET['p2p']) || !empty($_COOKIE['use_p2p']);
+// === تنظیمات تماس ===
+// پیش‌فرض جدید: کاملاً داخلی و رایگان با WebRTC P2P.
+// دلیل: meet.jit.si برای اتاق‌های عمومی گاهی صفحه‌ی "I'm the host"/login نشان می‌دهد و برای اینترنت ایران پایدار نیست.
+// اگر روزی خواستید Jitsi را دستی تست کنید: ?jitsi=1
+$useP2P = empty($_GET['jitsi']);
 $jitsiDisabled = $useP2P || isset($_GET['no_jitsi']);
 
 // === رندر اتاق ===
@@ -169,13 +179,12 @@ $jitsiDisabled = $useP2P || isset($_GET['no_jitsi']);
     <h2>در حال اتصال به اتاق جلسه...</h2>
     <p>لطفاً صبر کنید. اگر مرورگر اجازه‌ی دسترسی به میکروفون و دوربین خواست، اجازه دهید.</p>
     <p style="font-size:.78rem;margin-top:14px;color:#7f8d86">
-      💡 اگر بیش از ۱۰ ثانیه طول کشید، احتمالاً سرور Jitsi بلاک است.
-      <br>تخته و چت همچنان در دسترس هستند.
+      کلاس در حال آماده‌سازی است. لطفاً چند لحظه صبر کنید.
     </p>
   </div>
 </div>
 
-<div class="or-room" id="or-room" style="display:none">
+<div class="or-room side-collapsed" id="or-room" style="display:none">
   <!-- Top Bar -->
   <div class="or-topbar">
     <div class="or-topbar-left">
@@ -190,10 +199,13 @@ $jitsiDisabled = $useP2P || isset($_GET['no_jitsi']);
       <span class="or-timer"><span id="or-timer-text">00:00</span></span>
     </div>
     <div class="or-topbar-right">
-      <button class="or-btn-icon" id="or-mode-btn" title="تغییر حالت تماس"><?= icon('video',18) ?></button>
+      <?php if (!empty($_GET['debug_provider'])): ?>
+      <button class="or-btn-icon" id="or-mode-btn" title="مسیر جایگزین کلاس"><?= icon('video',18) ?></button>
+      <?php endif; ?>
       <button class="or-btn-icon" id="or-people-btn" title="شرکت‌کنندگان"><?= icon('users',18) ?></button>
       <button class="or-btn-icon" id="or-chat-btn" title="چت"><?= icon('message',18) ?></button>
       <button class="or-btn-icon" id="or-board-btn" title="تخته"><?= icon('edit',18) ?></button>
+      <?php if ($isHost): ?><button class="or-btn-icon" id="or-settings-btn" title="مدیریت کلاس"><?= icon('sliders',18) ?></button><?php endif; ?>
       <button class="or-btn-icon" id="or-side-toggle" title="باز/بستن پنل"><?= icon('sidebar',18) ?></button>
       <button class="or-btn-icon" id="or-end-btn" title="<?= $isHost ? 'پایان جلسه' : 'خروج' ?>" style="background:rgba(217,116,116,.16);color:#ff9a9a;border-color:rgba(217,116,116,.3)">
         <?= icon('phone-off',18) ?>
@@ -236,6 +248,14 @@ $jitsiDisabled = $useP2P || isset($_GET['no_jitsi']);
           <input type="range" min="2" max="20" value="4" id="wb-size" class="wb-size" title="ضخامت قلم">
           <div class="wb-tool-sep"></div>
           <button class="wb-tool" data-clear title="پاک کردن همه"><?= icon('trash',15) ?></button>
+          <?php if ($isHost): ?>
+          <button class="wb-tool" id="wb-pdf-btn" title="افزودن PDF درس"><?= icon('pdf',16) ?></button>
+          <button class="wb-tool" id="wb-pdf-prev" title="صفحه قبل" style="display:none"><?= icon('chevron-right',16) ?></button>
+          <span id="wb-pdf-page" style="display:none;color:#e8efe9;font-size:.74rem;font-weight:900;min-width:48px;text-align:center">۱ / ۱</span>
+          <button class="wb-tool" id="wb-pdf-next" title="صفحه بعد" style="display:none"><?= icon('chevron-left',16) ?></button>
+          <input id="wb-pdf-input" type="file" accept="application/pdf" hidden>
+          <?php endif; ?>
+          <button class="wb-tool" id="wb-download" title="دانلود خروجی کلاس"><?= icon('download',15) ?></button>
           <button class="wb-tool wb-exit" title="بستن تخته"><?= icon('x',16) ?></button>
         </div>
         <div class="wb-canvas-host">
@@ -249,7 +269,7 @@ $jitsiDisabled = $useP2P || isset($_GET['no_jitsi']);
     </div>
 
     <!-- Side Panel -->
-    <div class="or-side" id="or-side">
+    <div class="or-side is-hidden" id="or-side">
       <div class="or-side-tabs">
         <button class="or-side-tab active" data-tab="chat"><?= icon('message',18) ?> <span>چت</span></button>
         <button class="or-side-tab" data-tab="people"><?= icon('users',18) ?> <span>افراد</span></button>
@@ -284,7 +304,7 @@ $jitsiDisabled = $useP2P || isset($_GET['no_jitsi']);
                 <div class="or-person-name">میزبان · <?= e($session['advisor_name'] ?? 'میزبان') ?></div>
                 <div class="or-person-role">مشاور</div>
               </div>
-              <div class="or-person-icons"><span class="ic on" title="میکروفون">🎤</span></div>
+              <div class="or-person-icons"><span class="ic on" title="میکروفون"><?= icon('mic',14) ?></span></div>
             </div>
             <?php foreach ($participants as $p): ?>
               <div class="or-person" id="person-<?= (int)$p['student_id'] ?>" data-user-id="<?= (int)$p['student_id'] ?>">
@@ -294,8 +314,8 @@ $jitsiDisabled = $useP2P || isset($_GET['no_jitsi']);
                   <div class="or-person-role">دانش‌آموز</div>
                 </div>
                 <div class="or-person-icons">
-                  <span class="ic" title="میکروفون">🎤</span>
-                  <span class="ic" title="دوربین">📹</span>
+                  <span class="ic" title="میکروفون"><?= icon('mic',14) ?></span>
+                  <span class="ic" title="دوربین"><?= icon('video',14) ?></span>
                 </div>
               </div>
             <?php endforeach; ?>
@@ -318,6 +338,27 @@ $jitsiDisabled = $useP2P || isset($_GET['no_jitsi']);
       </div>
     </div>
   </div>
+
+
+  <?php if ($isHost): ?>
+  <div class="or-modal" id="or-settings-modal" aria-hidden="true">
+    <div class="or-modal-card">
+      <div class="or-modal-head">
+        <strong>مدیریت کلاس</strong>
+        <button class="or-btn-icon" id="or-settings-close" type="button"><?= icon('x',18) ?></button>
+      </div>
+      <div class="or-setting-grid">
+        <label><input type="checkbox" data-perm="mic" <?= !empty($session['allow_student_mic']) ? 'checked' : '' ?>> اجازه میکروفون دانش‌آموز</label>
+        <label><input type="checkbox" data-perm="cam" <?= !empty($session['allow_student_cam']) ? 'checked' : '' ?>> اجازه دوربین دانش‌آموز</label>
+        <label><input type="checkbox" data-perm="screen" <?= !empty($session['allow_screen_share']) ? 'checked' : '' ?>> اجازه اشتراک صفحه</label>
+        <label><input type="checkbox" data-perm="whiteboard" <?= !empty($session['allow_whiteboard']) ? 'checked' : '' ?>> اجازه کار روی تخته</label>
+        <label><input type="checkbox" data-perm="chat" <?= !empty($session['allow_chat']) ? 'checked' : '' ?>> اجازه چت</label>
+      </div>
+      <p class="or-setting-note">درخواست‌های دانش‌آموزان برای میکروفون، دوربین و اشتراک صفحه اینجا به شما نمایش داده می‌شود.</p>
+      <div class="or-requests" id="or-permission-requests"></div>
+    </div>
+  </div>
+  <?php endif; ?>
 
   <!-- Reactions -->
   <div class="or-reactions" id="or-reactions"></div>
@@ -364,6 +405,12 @@ $jitsiDisabled = $useP2P || isset($_GET['no_jitsi']);
       <?= icon('hand',20) ?>
       <span class="or-ctrl-label">دست</span>
     </button>
+    <?php if ($isHost): ?>
+    <button class="or-ctrl" id="or-settings-btn" title="مدیریت کلاس">
+      <?= icon('sliders',20) ?>
+      <span class="or-ctrl-label">مدیریت</span>
+    </button>
+    <?php endif; ?>
     <button class="or-ctrl" id="or-react-btn" title="واکنش">
       <?= icon('smile',20) ?>
       <span class="or-ctrl-label">واکنش</span>
@@ -381,6 +428,7 @@ window.MADAR = window.MADAR || {};
 window.MADAR.csrf = '<?= e(csrf_token()) ?>';
 window.MADAR_ROOM = {
   apiBase: '<?= e(url('api')) ?>',
+  assetBase: '<?= e(url('assets')) ?>/',
   sessionId: <?= (int)$sessionId ?>,
   userId: <?= (int)$u['id'] ?>,
   userName: '<?= e($u['full_name']) ?>',
@@ -391,6 +439,7 @@ window.MADAR_ROOM = {
   useFallback: <?= $useFallback ? 'true' : 'false' ?>,
   jitsiDisabled: <?= $jitsiDisabled ? 'true' : 'false' ?>,
   useP2P: <?= $useP2P ? 'true' : 'false' ?>,
+  status: '<?= e($session['status'] ?? 'scheduled') ?>',
   isHost: <?= $isHost ? 'true' : 'false' ?>,
   permissions: {
     mic: <?= !empty($session['allow_student_mic']) || $isHost ? 'true' : 'false' ?>,

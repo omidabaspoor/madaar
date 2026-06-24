@@ -29,11 +29,12 @@ foreach ($sections as $sec) {
         if ((int)$q['section_id'] !== (int)$sec['id']) continue;
         $globalNum++;
         $q['gnum'] = $q['question_number'] !== null ? (int)$q['question_number'] : $globalNum;
+        $q['flat_index'] = count($flatQ);
         $qBySection[(int)$sec['id']][] = $q;
         $flatQ[] = $q;
     }
 }
-$totalQ = count($flatQ);
+$totalQ = count(array_filter($flatQ, fn($q)=>empty($q['is_cancelled'])));
 $remain = $attempt['deadline_at'] ? max(0, strtotime($attempt['deadline_at']) - $now) : null;
 
 // داده‌ی اولیه برای JS
@@ -53,6 +54,7 @@ $sheetItems = array_values(array_map(fn($p)=>[
     'rel'=>(string)$p,
     'url'=>sheet_view_url((string)$p, $examId),
     'type'=>sheet_asset_type((string)$p),
+    'download'=> is_pdf_asset((string)$p) ? url('api/exam_file.php?exam_id=' . $examId . '&file=' . rawurlencode(basename((string)$p)) . '&download=1') : url((string)$p),
 ], $sheetArr));
 $firstSheet = $sheetItems[0] ?? ['rel'=>'','url'=>'','type'=>'image'];
 
@@ -65,6 +67,7 @@ page_head('آزمون: ' . $exam['title'], '', ['exam.css']);
     <div class="exam-bar-info flex gap-3 wrap" style="align-items:center">
       <a href="<?= url('student/exams.php') ?>" class="btn btn-ghost btn-sm flex gap-1" style="color:var(--text-2);align-items:center"><?= icon('arrow-right',16) ?> خروج</a>
       <a href="<?= url('student/exam_pdf.php?id=' . $examId) ?>" target="_blank" class="btn btn-ghost btn-sm flex gap-1" style="border-color:var(--sage); color:var(--sage-light); font-weight:bold; align-items:center" title="چاپ یا دریافت PDF دفترچه سوالات"><?= icon('clipboard',16) ?> <span>خروجی PDF سوالات</span></a>
+      <?php if(!empty($firstSheet['download'])): ?><a href="<?= e($firstSheet['download']) ?>" class="btn btn-ghost btn-sm flex gap-1" id="sheetDownloadTop" style="border-color:var(--gold); color:var(--gold-light); font-weight:bold; align-items:center" download><?= icon('download',16) ?> <span>دانلود دفترچه</span></a><?php endif; ?>
       <div class="eb-title" style="font-size:1.2rem;font-weight:900;color:var(--gold-light)"><?= e($exam['title']) ?></div>
       <div class="eb-sub badge badge-sage"><span id="answeredCount" style="font-weight:900">۰</span> / <?= fa_num($totalQ) ?> پاسخ‌داده</div>
     </div>
@@ -100,12 +103,14 @@ page_head('آزمون: ' . $exam['title'], '', ['exam.css']);
               <button type="button" class="btn btn-ghost btn-sm" id="prevSheetPageBtn" title="صفحه قبل" style="padding:0 8px;font-weight:bold" disabled>◀ قبلی</button>
               <select id="sheetPageSelect" class="select" style="margin:0;height:28px;padding:0 10px;font-size:.85rem;font-weight:bold;width:auto">
                 <?php foreach($sheetItems as $si => $item): ?>
-                  <option value="<?= (int)$si ?>" data-src="<?= e($item['url']) ?>" data-type="<?= e($item['type']) ?>">ص <?= $si+1 ?><?= $item['type']==='pdf'?' · PDF':'' ?></option>
+                  <option value="<?= (int)$si ?>" data-src="<?= e($item['url']) ?>" data-type="<?= e($item['type']) ?>" data-download="<?= e($item['download'] ?? $item['url']) ?>">ص <?= $si+1 ?><?= $item['type']==='pdf'?' · PDF':'' ?></option>
                 <?php endforeach; ?>
               </select>
               <button type="button" class="btn btn-ghost btn-sm" id="nextSheetPageBtn" title="صفحه بعد" style="padding:0 8px;font-weight:bold">بعدی ▶</button>
             </div>
           <?php endif; ?>
+
+          <a href="<?= e($firstSheet['download'] ?? $firstSheet['url']) ?>" class="btn btn-gold btn-sm" id="sheetDownloadBtn" download style="font-weight:900"><?= icon('download',15) ?> دانلود</a>
 
           <div class="flex gap-1" id="imageZoomControls" style="align-items:center;direction:ltr;background:var(--surface-1);padding:2px 8px;border-radius:6px">
             <button type="button" class="btn btn-ghost btn-sm" id="zoomOutBtn" title="کوچک‌نمایی" style="font-weight:900;font-size:1.2rem;width:28px;height:28px;padding:0">-</button>
@@ -123,6 +128,7 @@ page_head('آزمون: ' . $exam['title'], '', ['exam.css']);
         <div class="booklet-scroll-area <?= $firstSheet['type']==='pdf'?'pdf-mode':'' ?>" id="bookletScrollArea" data-type="<?= e($firstSheet['type']) ?>" style="flex:1;overflow:hidden;padding:24px;background:#060a08;position:relative;cursor:grab;user-select:none;display:flex;align-items:center;justify-content:center">
           <img id="bookletImg" class="<?= $firstSheet['type']==='pdf'?'hidden':'' ?>" src="<?= $firstSheet['type']==='image' ? e($firstSheet['url']) : '' ?>" alt="Exam Booklet Sheet" style="max-width:none;max-height:none;transition:transform 0.08s ease;border-radius:12px;box-shadow:0 12px 36px rgba(0,0,0,0.8);position:absolute;transform:translate(0px, 0px) scale(1)">
           <div id="bookletPdf" class="booklet-pdf-canvas-wrap <?= $firstSheet['type']==='pdf'?'':'hidden' ?>" data-src="<?= $firstSheet['type']==='pdf' ? e($firstSheet['url']) : '' ?>">
+            <iframe id="bookletPdfNative" class="booklet-pdf-native" title="دفترچه آزمون" src="<?= $firstSheet['type']==='pdf' ? e($firstSheet['url']) : '' ?>"></iframe>
             <canvas id="bookletPdfCanvas"></canvas>
             <div class="pdf-page-loading hidden" id="pdfPageLoading"><span class="spinner"></span> در حال آماده‌سازی PDF…</div>
           </div>
@@ -145,18 +151,19 @@ page_head('آزمون: ' . $exam['title'], '', ['exam.css']);
               $sel = $initAnswers[$q['id']]['s'] ?? null;
               $fl  = $initAnswers[$q['id']]['f'] ?? 0;
           ?>
-            <div class="bubble-row-item" data-q="<?= (int)$q['id'] ?>" data-gnum="<?= $qi+1 ?>" style="background:var(--surface-2);border:1px solid var(--border-soft);padding:10px 20px;border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:16px;box-shadow:0 4px 12px rgba(0,0,0,0.1)">
+            <div class="bubble-row-item <?= !empty($q['is_cancelled'])?'cancelled-question':'' ?>" data-q="<?= (int)$q['id'] ?>" data-gnum="<?= $qi+1 ?>" data-cancelled="<?= !empty($q['is_cancelled'])?'1':'0' ?>" style="background:var(--surface-2);border:1px solid var(--border-soft);padding:10px 20px;border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:16px;box-shadow:0 4px 12px rgba(0,0,0,0.1)">
+              <?php if(!empty($q['is_cancelled'])): ?><div class="cancelled-question-label">خط خورده؛ محاسبه نمی‌شود</div><?php endif; ?>
               
               <div class="flex gap-3" style="align-items:center">
-                <span style="font-family:monospace;font-size:1.1rem;font-weight:900;color:var(--text-1);width:40px">Q<?= $qi+1 ?></span>
-                <button type="button" class="q-bookmark-btn <?= $fl?'active':'' ?>" data-flag title="علامت‌گذاری سوال برای مرور" style="border:none;background:<?= $fl?'var(--gold)':'var(--surface-1)' ?>;color:<?= $fl?'#000':'var(--text-2)' ?>;width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.15s">
+                <span style="font-family:monospace;font-size:1.1rem;font-weight:900;color:var(--text-1);width:40px">Q<?= fa_num($q['gnum']) ?></span>
+                <button type="button" class="q-bookmark-btn <?= $fl?'active':'' ?>" <?= !empty($q['is_cancelled'])?'disabled':'' ?> data-flag title="علامت‌گذاری سوال برای مرور" style="border:none;background:<?= $fl?'var(--gold)':'var(--surface-1)' ?>;color:<?= $fl?'#000':'var(--text-2)' ?>;width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.15s">
                   <?= icon('flag',16) ?>
                 </button>
               </div>
 
               <div class="flex gap-2 bubble-options-group">
                 <?php for($oi=1; $oi<=4; $oi++): ?>
-                  <button type="button" class="bubble-opt-btn <?= $sel===$oi?'selected':'' ?>" data-opt="<?= $oi ?>" style="width:36px;height:36px;border-radius:50%;border:1px solid var(--border-soft);background:<?= $sel===$oi?'var(--gold)':'var(--surface-1)' ?>;color:<?= $sel===$oi?'#000':'var(--text-2)' ?>;font-size:.95rem;font-weight:900;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.1s">
+                  <button type="button" class="bubble-opt-btn <?= $sel===$oi?'selected':'' ?>" <?= !empty($q['is_cancelled'])?'disabled':'' ?> data-opt="<?= $oi ?>" style="width:36px;height:36px;border-radius:50%;border:1px solid var(--border-soft);background:<?= $sel===$oi?'var(--gold)':'var(--surface-1)' ?>;color:<?= $sel===$oi?'#000':'var(--text-2)' ?>;font-size:.95rem;font-weight:900;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.1s">
                     <?= $oi ?>
                   </button>
                 <?php endfor; ?>
@@ -189,17 +196,18 @@ page_head('آزمون: ' . $exam['title'], '', ['exam.css']);
         <?php $i=0; foreach ($flatQ as $q): $sel = $initAnswers[$q['id']]['s'] ?? null; $fl = $initAnswers[$q['id']]['f'] ?? 0;
           $secName=''; foreach($sections as $s){ if((int)$s['id']===(int)$q['section_id']){ $secName=$s['name']; break; } }
         ?>
-        <div class="exam-q <?= $i===0?'active':'' ?>" data-q="<?= (int)$q['id'] ?>" data-index="<?= $i ?>" data-section="<?= (int)$q['section_id'] ?>">
+        <div class="exam-q <?= $i===0?'active':'' ?> <?= !empty($q['is_cancelled'])?'cancelled-question':'' ?>" data-q="<?= (int)$q['id'] ?>" data-cancelled="<?= !empty($q['is_cancelled'])?'1':'0' ?>" data-index="<?= $i ?>" data-section="<?= (int)$q['section_id'] ?>">
           <div class="eq-head">
             <span class="eq-sec"><?= e($secName) ?></span>
             <span class="eq-num">سوال <?= fa_num($q['gnum']) ?> از <?= fa_num($totalQ) ?></span>
             <button class="eq-flag <?= $fl?'on':'' ?>" data-flag data-tip="علامت برای مرور"><?= icon('flag',16) ?></button>
           </div>
+          <?php if(!empty($q['is_cancelled'])): ?><div class="cancelled-question-label">این سوال توسط مشاور خط خورده و در نمره محاسبه نمی‌شود.</div><?php endif; ?>
           <?php if($q['q_image']):?><div class="eq-image"><img src="<?= url($q['q_image']) ?>" alt="" loading="lazy"></div><?php endif;?>
           <div class="eq-text"><?= nl2br(e($q['q_text'] ?: '—')) ?></div>
           <div class="eq-options">
             <?php for($o=1;$o<=4;$o++): if($q['opt'.$o]===null || $q['opt'.$o]==='') continue; ?>
-            <button class="eq-opt <?= $sel===$o?'selected':'' ?>" data-opt="<?= $o ?>">
+            <button class="eq-opt <?= $sel===$o?'selected':'' ?>" data-opt="<?= $o ?>" <?= !empty($q['is_cancelled'])?'disabled':'' ?>>
               <span class="eqo-marker"><?= fa_num($o) ?></span>
               <span class="eqo-text"><?= e($q['opt'.$o]) ?></span>
             </button>
@@ -231,7 +239,7 @@ page_head('آزمون: ' . $exam['title'], '', ['exam.css']);
         <div class="qgrid-sec-title"><?= e($sec['name']) ?></div>
         <div class="qgrid">
           <?php foreach ($qBySection[(int)$sec['id']] as $q): $sel=$initAnswers[$q['id']]['s']??null; $fl=$initAnswers[$q['id']]['f']??0; ?>
-          <button class="qg-cell <?= $sel?'answered':'' ?> <?= $fl?'flagged':'' ?>" data-goto="<?= $q['gnum']-1 ?>" data-q="<?= (int)$q['id'] ?>"><?= fa_num($q['gnum']) ?></button>
+          <button class="qg-cell <?= $sel?'answered':'' ?> <?= $fl?'flagged':'' ?> <?= !empty($q['is_cancelled'])?'cancelled-question':'' ?>" data-goto="<?= (int)($q['flat_index'] ?? 0) ?>" data-q="<?= (int)$q['id'] ?>"><?= fa_num($q['gnum']) ?></button>
           <?php endforeach; ?>
         </div>
         <?php endforeach; ?>
