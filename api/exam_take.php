@@ -3,6 +3,7 @@
  * API آزمون‌دادن (دانش‌آموز)
  * actions: answer (ذخیره پاسخ), flag, sync (دسته‌ای), submit, time
  */
+ob_start();
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/models.php';
 boot_session();
@@ -147,5 +148,18 @@ case 'submit': {
 default: json_out(['ok'=>false,'error'=>'عملیات نامعتبر'],400);
 }
 } catch (Throwable $e) {
-    json_out(['ok'=>false,'error'=> APP_ENV==='development' ? $e->getMessage() : 'خطای سرور'],500);
+    error_log('[exam_take API] ' . $e->getMessage() . ' | Trace: ' . $e->getTraceAsString());
+    if (!headers_sent()) {
+        json_out([
+            'ok' => false,
+            'error' => APP_ENV==='development' ? $e->getMessage() : 'خطای سرور',
+        ], 500);
+    } else {
+        // اگر قبلاً header فرستاده شده، حداقل JSON تمیز چاپ کن
+        echo json_encode([
+            'ok' => false,
+            'error' => APP_ENV==='development' ? $e->getMessage() : 'خطای سرور',
+        ], JSON_UNESCAPED_UNICODE);
+    }
+    exit;
 }

@@ -288,7 +288,7 @@ panel_start($exam ? 'ویرایش آزمون' : 'طراحی آزمون جدید'
                     $realNum = $q['question_number'] !== null ? (int)$q['question_number'] : ($qi + 1);
                     $cVal    = (int)$q['correct_opt'];
               ?>
-                    <div class="bg-item <?= !empty($q['is_cancelled'])?'qkey-cancelled':'' ?>" data-question="<?= (int)$q['id'] ?>" data-qnum="<?= $qi + 1 ?>" data-realnum="<?= $realNum ?>" data-cancelled="<?= !empty($q['is_cancelled'])?'1':'0' ?>" style="background:var(--surface-1);padding:10px;border-radius:12px;display:flex;flex-direction:column;align-items:center;border:1px solid var(--border-soft)">
+                    <div class="bg-item" data-qnum="<?= $qi + 1 ?>" data-realnum="<?= $realNum ?>" style="background:var(--surface-1);padding:10px;border-radius:12px;display:flex;flex-direction:column;align-items:center;border:1px solid var(--border-soft)">
                       <div class="flex items-center gap-1 mb-2 w-full justify-center">
                         <span style="font-size:.7۵rem;color:var(--text-3);font-weight:bold;">Q</span>
                         <input type="number" class="input bubble-qnum-input font-mono font-bold text-center text-xs p-1 h-7 w-16" value="<?= $realNum ?>" title="تنظیم دستی شماره این سوال" onchange="updateBubbleRealNum(this)">
@@ -307,7 +307,7 @@ panel_start($exam ? 'ویرایش آزمون' : 'طراحی آزمون جدید'
                     $cVal = isset($existingKey[$qi-1]) ? (int)$existingKey[$qi-1] : 0;
                     $realNum = $qi;
                 ?>
-                    <div class="bg-item" data-qnum="<?= $qi ?>" data-realnum="<?= $realNum ?>" data-cancelled="0" style="background:var(--surface-1);padding:10px;border-radius:12px;display:flex;flex-direction:column;align-items:center;border:1px solid var(--border-soft)">
+                    <div class="bg-item" data-qnum="<?= $qi ?>" data-realnum="<?= $realNum ?>" style="background:var(--surface-1);padding:10px;border-radius:12px;display:flex;flex-direction:column;align-items:center;border:1px solid var(--border-soft)">
                       <div class="flex items-center gap-1 mb-2 w-full justify-center">
                         <span style="font-size:.7۵rem;color:var(--text-3);font-weight:bold;">Q</span>
                         <input type="number" class="input bubble-qnum-input font-mono font-bold text-center text-xs p-1 h-7 w-16" value="<?= $realNum ?>" title="تنظیم دستی شماره این سوال" onchange="updateBubbleRealNum(this)">
@@ -338,7 +338,7 @@ panel_start($exam ? 'ویرایش آزمون' : 'طراحی آزمون جدید'
     <div class="studio-suite <?= $mode==='standard'?'':'hidden' ?>" id="suiteStandard">
       <div class="between wrap gap-3 mb-4">
         <div class="exam-summary">
-          <span class="ps-item"><span class="v" id="totalQ"><?= fa_num(count(array_filter($questions, fn($q)=>empty($q['is_cancelled'])))) ?></span><span class="k">سوال فعال</span></span>
+          <span class="ps-item"><span class="v" id="totalQ"><?= fa_num(count($questions)) ?></span><span class="k">سوال</span></span>
           <span class="ps-item"><span class="v" id="totalSec"><?= fa_num(count($sections)) ?></span><span class="k">درس/بخش</span></span>
         </div>
         <button class="btn btn-ghost flex gap-1" id="addSectionBtn" style="align-items:center"><?= icon('plus',16) ?> افزودن بخش جدید</button>

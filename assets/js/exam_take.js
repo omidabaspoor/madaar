@@ -362,52 +362,59 @@
       const parent = bOpt.closest('.bubble-row-item');
       const qid = parent.dataset.q;
       const val = parseInt(bOpt.dataset.opt);
-      parent.querySelectorAll('.bubble-opt-btn').forEach(o => {
-        o.classList.remove('selected');
-        o.style.background = 'var(--surface-1)';
-        o.style.color      = 'var(--text-2)';
-      });
+      parent.querySelectorAll('.bubble-opt-btn').forEach(o => o.classList.remove('selected'));
       bOpt.classList.add('selected');
-      bOpt.style.background = 'var(--gold)';
-      bOpt.style.color      = '#000';
-      const clrBtn = parent.querySelector('.q-clear-btn');
+      const clrBtn = parent.querySelector('[data-clear], .bubble-clear-btn');
       if (clrBtn) clrBtn.classList.remove('hidden');
-      
       setAnswer(qid, val);
       return;
     }
 
-    const bClr = e.target.closest('.q-clear-btn');
+    const bClr = e.target.closest('[data-clear], .bubble-clear-btn');
     if (bClr) {
       const parent = bClr.closest('.bubble-row-item');
       const qid = parent.dataset.q;
-      parent.querySelectorAll('.bubble-opt-btn').forEach(o => {
-        o.classList.remove('selected');
-        o.style.background = 'var(--surface-1)';
-        o.style.color      = 'var(--text-2)';
-      });
+      parent.querySelectorAll('.bubble-opt-btn').forEach(o => o.classList.remove('selected'));
       bClr.classList.add('hidden');
       setAnswer(qid, null);
       return;
     }
 
-    const bBkm = e.target.closest('.q-bookmark-btn');
+    const bBkm = e.target.closest('[data-flag], .bubble-flag-btn');
     if (bBkm) {
       const parent = bBkm.closest('.bubble-row-item');
       const qid = parent.dataset.q;
       const now = !(state[qid]?.f);
       bBkm.classList.toggle('active', now);
-      bBkm.style.background = now ? 'var(--gold)'   : 'var(--surface-1)';
       bBkm.style.color      = now ? '#000'          : 'var(--text-2)';
       setFlag(qid, now);
       return;
     }
   });
 
-  const smartBtn = document.getElementById('finishSamuraiExamBtn') || document.getElementById('finishSmartExamBtn');
+  const smartBtn = document.getElementById('finishSmartExamBtn');
   smartBtn?.addEventListener('click', () => {
     openSubmit();
   });
+
+
+  // ===== More menu toggle (top bar) =====
+  const moreBtn = document.getElementById('examMoreBtn');
+  const moreMenu = document.getElementById('examMoreMenu');
+  if (moreBtn && moreMenu) {
+    moreBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      moreMenu.hidden = !moreMenu.hidden;
+    });
+    document.addEventListener('click', e => {
+      if (!moreMenu.hidden && !moreMenu.contains(e.target) && e.target !== moreBtn && !moreBtn.contains(e.target)) {
+        moreMenu.hidden = true;
+      }
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && !moreMenu.hidden) moreMenu.hidden = true;
+    });
+  }
 
   /* =================================================================
      CLEAN DESKTOP/MOBILE ONBOARDING TOUR
@@ -687,12 +694,15 @@
 
     try{
       const d=await api(API,{method:'POST',body:{action:'submit',attempt_id:attemptId,answers}});
+      if(!d.ok) throw d;
       submitted=true;
       window.removeEventListener('beforeunload',warnLeave);
       location.href=d.redirect;
-    }catch(e){ 
+    }catch(e){
       if(btn) { btn.disabled=false; btn.innerHTML='✓ ثبت نهایی و مشاهده کارنامه'; }
-      toast(e.error||'خطا در ثبت نهایی، دوباره تلاش کنید','error'); 
+      const msg = (e && (e.error||e.message)) || 'خطا در ثبت نهایی، دوباره تلاش کنید';
+      console.error('[Exam submit]', e);
+      toast(msg, 'error', 5000);
     }
   }
 
@@ -720,4 +730,63 @@
   });
 
   show(0);
+
+  /* =================================================================
+     Persian PDF text layer (RTL) — render selectable text on top of canvas
+     ================================================================= */
+  const pdfTextLayer = document.getElementById('bookletPdfTextLayer');
+  async function renderPdfTextLayer() {
+    if (!pdfDoc || !pdfTextLayer || !pdfCanvas) return;
+    try {
+      const page = await pdfDoc.getPage(pdfPageNo);
+      const scale = currentZoom || pdfBaseScale || 1;
+      const viewport = page.getViewport({scale});
+      const textContent = await page.getTextContent({disableCombineTextItems: false, includeMarkedContent: false});
+      const cssWidth = viewport.width, cssHeight = viewport.height;
+      pdfTextLayer.style.width = cssWidth + 'px';
+      pdfTextLayer.style.height = cssHeight + 'px';
+      // Position canvas and text layer together (canvas centered, layer aligned)
+      pdfTextLayer.style.left = '50%';
+      pdfTextLayer.style.top = '50%';
+      pdfTextLayer.style.transformOrigin = '0 0';
+
+      pdfTextLayer.innerHTML = '';
+      const hasPersian = /[\u0600-\u06FF]/.test(textContent.items.map(i => i.str).join(''));
+      let placedCount = 0;
+      for (const item of textContent.items) {
+        if (!item.str || !item.transform) continue;
+        const tx = pdfjs.Util.transform(viewport.transform, item.transform);
+        const fontHeight = Math.max(Math.hypot(tx[2], tx[3]), 8);
+        const angle = Math.atan2(tx[1], tx[0]);
+        const span = document.createElement('span');
+        span.textContent = item.str;
+        span.style.left = tx[4] + 'px';
+        span.style.top = (tx[5] - fontHeight) + 'px';
+        span.style.fontSize = fontHeight + 'px';
+        span.style.transform = `rotate(${angle}rad)`;
+        span.style.transformOrigin = '0% 0%';
+        // Persian RTL handling: برای متن فارسی، div معکوس می‌شود
+        if (hasPersian) {
+          span.style.writingMode = 'horizontal-tb';
+          span.style.direction = 'rtl';
+          span.style.unicodeBidi = 'embed';
+        }
+        pdfTextLayer.appendChild(span);
+        placedCount++;
+      }
+      pdfTextLayer.classList.add('show');
+      // Hide text layer visually (we use it for copy/selection); keep opacity 0 for clean look
+      pdfTextLayer.classList.remove('show');
+    } catch (err) {
+      // text layer is optional
+    }
+  }
+
+  // Hook into renderPdfPage
+  const _renderPdfPageOrig = renderPdfPage;
+  renderPdfPage = function(resetPan){
+    return _renderPdfPageOrig(resetPan).then(() => renderPdfTextLayer());
+  };
+
+
 })();

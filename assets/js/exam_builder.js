@@ -44,19 +44,13 @@
     return document.querySelector('input[name="creation_mode"]:checked')?.value || 'standard';
   }
 
-  document.querySelectorAll('.mode-card').forEach(card => {
+  document.querySelectorAll('.eb-mode-card').forEach(card => {
     card.addEventListener('click', () => {
       const inp = card.querySelector('input[name="creation_mode"]');
       if (inp) inp.checked = true;
-      document.querySelectorAll('.mode-card').forEach(c => {
-        c.classList.remove('active');
-        c.style.borderColor = 'var(--border-soft)';
-        c.style.background = 'var(--surface-1)';
-      });
+      document.querySelectorAll('.eb-mode-card').forEach(c => c.classList.remove('active'));
       card.classList.add('active');
-      card.style.borderColor = card.querySelector('input').value === 'quick_sheet' ? 'var(--gold)' : 'var(--cyan)';
-      card.style.background = 'var(--surface-2)';
-      root.dataset.mode = card.querySelector('input').value;
+      root.dataset.mode = inp ? inp.value : 'quick_sheet';
       metaDirty = true;
       syncStudioSuites();
     });
@@ -133,7 +127,7 @@
   function goStep(n){
     root.dataset.step=n;
     document.querySelectorAll('.builder-step').forEach(s=>s.classList.toggle('hidden', s.dataset.step!=String(n)));
-    document.querySelectorAll('.stepper .step').forEach(b => b.classList.toggle('active', b.dataset.stepTo==String(n)));
+    document.querySelectorAll('.eb-stepper .eb-step').forEach(b => b.classList.toggle('active', b.dataset.stepTo==String(n)));
     updateUrl(n);
     window.scrollTo({top:0,behavior:'smooth'});
   }
