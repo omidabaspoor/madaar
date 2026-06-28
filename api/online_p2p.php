@@ -27,6 +27,14 @@ $body = json_decode(file_get_contents('php://input'), true) ?: [];
 $roomId = (int)($_GET['room_id'] ?? ($body['room_id'] ?? 0));
 $myId = (string)($_GET['my_id'] ?? ($body['my_id'] ?? '')); // peer id مثل p_xxx رشته است، نه عدد
 
+// P2P CSRF: همه‌ی درخواست‌ها از صفحه‌ی اتاق با توکن session ارسال می‌شوند.
+$csrfToken = (string)($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+if (!$csrfToken || !isset($_SESSION[CSRF_TOKEN_NAME]) || !hash_equals($_SESSION[CSRF_TOKEN_NAME], $csrfToken)) {
+    http_response_code(419);
+    echo json_encode(['ok' => false, 'error' => 'csrf_invalid']);
+    exit;
+}
+
 if ($roomId <= 0) {
     echo json_encode(['ok' => false, 'error' => 'invalid_room']);
     exit;
@@ -51,6 +59,30 @@ if (($role === 'student' && !online_session_student_can_access($roomId, $me))
 if (!online_sessions_schema_ready()) {
     echo json_encode(['ok' => false, 'error' => 'schema_missing']);
     exit;
+}
+
+if (($session['status'] ?? '') !== 'live' && !in_array($action, ['leave'], true)) {
+    echo json_encode(['ok' => false, 'error' => 'session_not_live', 'status' => $session['status'] ?? '']);
+    exit;
+}
+
+function p2p_peer_owned(string $peerId, int $roomId, int $userId): bool {
+    if ($peerId === '') return false;
+    try {
+        $st = db()->prepare('SELECT 1 FROM session_peers WHERE room_id=? AND peer_id=? AND user_id=? LIMIT 1');
+        $st->execute([$roomId, $peerId, $userId]);
+        return (bool)$st->fetchColumn();
+    } catch (Throwable $e) { return false; }
+}
+
+function p2p_effective_media(array $session, int $userId, string $role, array $body): array {
+    $perm = online_permission_effective_state($session, $userId, $role);
+    $isHost = online_session_is_host($session, $userId, $role);
+    return [
+        'mic' => ($isHost || !empty($perm['mic'])) && !empty($body['mic_on']) ? 1 : 0,
+        'cam' => ($isHost || !empty($perm['cam'])) && !empty($body['cam_on']) ? 1 : 0,
+        'screen' => ($isHost || !empty($perm['screen'])) && !empty($body['screen_on']) ? 1 : 0,
+    ];
 }
 
 // ساخت جدول peers اگر نیست
@@ -104,9 +136,10 @@ try {
         // امنیت: کلاینت حق ندارد خودش را میزبان معرفی کند. میزبان فقط مشاور مالک جلسه یا admin است.
         $isHost = ((int)($session['advisor_id'] ?? 0) === $me || $role === 'admin') ? 1 : 0;
 
-        $micOn = !empty($body['mic_on']) ? 1 : 0;
-        $camOn = !empty($body['cam_on']) ? 1 : 0;
-        $screenOn = !empty($body['screen_on']) ? 1 : 0;
+        $media = p2p_effective_media($session, $me, $role, $body);
+        $micOn = $media['mic'];
+        $camOn = $media['cam'];
+        $screenOn = $media['screen'];
         db()->prepare('INSERT INTO session_peers (room_id, peer_id, user_id, user_name, is_host, mic_on, cam_on, screen_on, last_poll) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
             ON DUPLICATE KEY UPDATE last_poll=NOW(), user_name=VALUES(user_name), is_host=VALUES(is_host), mic_on=VALUES(mic_on), cam_on=VALUES(cam_on), screen_on=VALUES(screen_on)')
             ->execute([$roomId, $peerId, $me, $name, $isHost, $micOn, $camOn, $screenOn]);
@@ -126,9 +159,14 @@ try {
             exit;
         }
 
+        if (!p2p_peer_owned($myId, $roomId, $me)) {
+            echo json_encode(['ok' => false, 'error' => 'peer_not_found']);
+            exit;
+        }
+
         // به‌روزرسانی last_poll
-        db()->prepare('UPDATE session_peers SET last_poll=NOW() WHERE room_id=? AND peer_id=?')
-            ->execute([$roomId, $myId]);
+        db()->prepare('UPDATE session_peers SET last_poll=NOW() WHERE room_id=? AND peer_id=? AND user_id=?')
+            ->execute([$roomId, $myId, $me]);
 
         // حذف peers غیرفعال (>30 ثانیه بدون poll)
         db()->prepare('DELETE FROM session_peers WHERE room_id=? AND last_poll < DATE_SUB(NOW(), INTERVAL 30 SECOND)')
@@ -194,9 +232,11 @@ try {
 
     case 'state': {
         if ($myId === '') { echo json_encode(['ok'=>false,'error'=>'no_my_id']); exit; }
-        $mic = !empty($body['mic_on']) ? 1 : 0;
-        $cam = !empty($body['cam_on']) ? 1 : 0;
-        $screen = !empty($body['screen_on']) ? 1 : 0;
+        if (!p2p_peer_owned($myId, $roomId, $me)) { echo json_encode(['ok'=>false,'error'=>'peer_not_found']); exit; }
+        $media = p2p_effective_media($session, $me, $role, $body);
+        $mic = $media['mic'];
+        $cam = $media['cam'];
+        $screen = $media['screen'];
         db()->prepare('UPDATE session_peers SET mic_on=?, cam_on=?, screen_on=?, last_poll=NOW() WHERE room_id=? AND peer_id=? AND user_id=?')
             ->execute([$mic,$cam,$screen,$roomId,$myId,$me]);
         echo json_encode(['ok'=>true]); exit;
@@ -208,6 +248,7 @@ try {
         $cmd = (string)($body['command'] ?? '');
         $allowed = ['mic_off','cam_off','screen_off','kick'];
         if (!$target || !in_array($cmd, $allowed, true)) { echo json_encode(['ok'=>false,'error'=>'bad_command']); exit; }
+        if (!online_session_student_can_access($roomId, $target)) { echo json_encode(['ok'=>false,'error'=>'target_not_in_session']); exit; }
         db()->prepare('INSERT INTO session_peer_commands (room_id,target_user_id,command,from_user_id) VALUES (?,?,?,?)')
             ->execute([$roomId,$target,$cmd,$me]);
         echo json_encode(['ok'=>true]); exit;
@@ -219,6 +260,11 @@ try {
             echo json_encode(['ok' => false, 'error' => 'missing_params']);
             exit;
         }
+
+        if (!p2p_peer_owned($myId, $roomId, $me)) { echo json_encode(['ok'=>false,'error'=>'peer_not_found']); exit; }
+        $toChk = db()->prepare('SELECT 1 FROM session_peers WHERE room_id=? AND peer_id=? LIMIT 1');
+        $toChk->execute([$roomId, $toPeer]);
+        if (!$toChk->fetchColumn()) { echo json_encode(['ok'=>false,'error'=>'target_peer_not_found']); exit; }
 
         $signal = $body['signal'] ?? null;
         if (!$signal) {
@@ -238,6 +284,7 @@ try {
             echo json_encode(['ok' => false, 'error' => 'no_my_id']);
             exit;
         }
+        if (!p2p_peer_owned($myId, $roomId, $me)) { echo json_encode(['ok'=>true, 'already_left'=>true]); exit; }
 
         db()->prepare('DELETE FROM session_peers WHERE room_id=? AND peer_id=?')
             ->execute([$roomId, (string)$myId]);

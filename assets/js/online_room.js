@@ -13,7 +13,19 @@ function bindAll(id,fn){$$(`[id="${id}"]`).forEach(el=>el.addEventListener('clic
 function parseDomain(url){try{return new URL(url).hostname}catch(e){return 'meet.jit.si'}}
 function loadScript(src,timeout=8500){return new Promise((res,rej)=>{if(window.JitsiMeetExternalAPI)return res();const s=document.createElement('script');let done=false;const t=setTimeout(()=>{if(!done){done=true;s.remove();rej(new Error('timeout'))}},timeout);s.src=src;s.async=true;s.onload=()=>{if(!done){done=true;clearTimeout(t);res()}};s.onerror=()=>{if(!done){done=true;clearTimeout(t);rej(new Error('load failed'))}};document.head.appendChild(s);});}
 async function connectMedia(){
-  if(!R.jitsiDisabled) await startJitsi().catch(async e=>{console.warn(e);toast('کلاس با مسیر داخلی مَدار آماده شد.'); await startP2P();}); else await startP2P();
+  // Hybrid free mode: first internal P2P (fast, no server media cost), then optional Jitsi fallback.
+  if(R.useP2P !== false){
+    try { await startP2P(); return; }
+    catch(e){
+      console.warn('P2P failed', e);
+      if(!R.jitsiDisabled){ toast('مسیر داخلی وصل نشد؛ مسیر جایگزین رایگان فعال می‌شود.'); await startJitsi(); return; }
+      $('#jitsi-host').innerHTML='<div class="or-waiting"><div class="or-waiting-card"><h2>اتصال برقرار نشد</h2><p>مرورگر یا شبکه اجازه‌ی WebRTC نمی‌دهد. Chrome/Edge به‌روز را امتحان کنید.</p></div></div>';
+      showRoom();
+    }
+  } else {
+    try { await startJitsi(); }
+    catch(e){ console.warn('Jitsi failed', e); toast('مسیر جایگزین وصل نشد؛ مسیر داخلی مَدار فعال شد.'); await startP2P(); }
+  }
 }
 async function waitForLiveThenConnect(){
   $('#jitsi-host').innerHTML='<div class="or-waiting"><div class="or-waiting-card"><h2>کلاس هنوز شروع نشده است</h2><p>پس از شروع کلاس توسط مشاور، اتصال شما به‌صورت خودکار برقرار می‌شود.</p><p style="font-size:.8rem;color:#90a199">این صفحه را باز نگه دارید.</p></div></div>';
@@ -28,7 +40,7 @@ async function waitForLiveThenConnect(){
 async function start(){
   document.documentElement.classList.add('online-room-ready');
   bindUi(); initChat(); initWhiteboard(); startTimers(); applyRoomLiveState();
-  if(R.isHost && R.status==='scheduled') { await api('start_session',{session_id:R.sessionId}).catch(()=>{}); R.status='live'; applyRoomLiveState(); }
+  if(R.isHost && R.status==='scheduled') { const sr=await api('start_session',{session_id:R.sessionId}).catch(()=>null); if(sr?.ok){ R.status='live'; applyRoomLiveState(); } else { toast(sr?.error||'شروع کلاس ثبت نشد؛ دوباره تلاش کنید.'); } }
   if(!R.isHost && R.status==='scheduled') { await waitForLiveThenConnect(); return; }
   await connectMedia();
   showRoom();
@@ -63,7 +75,7 @@ function bindUi(){
     const command=b.dataset.forceCommand, target_user_id=parseInt(b.dataset.forceUser||'0',10);
     if(!target_user_id) return;
     const labels={mic_off:'میکروفون دانش‌آموز بسته شد.',cam_off:'دوربین دانش‌آموز بسته شد.',kick:'دانش‌آموز از کلاس خارج شد.'};
-    const r=await fetch(`${R.apiBase}/online_p2p.php?action=command&room_id=${R.sessionId}`,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({room_id:R.sessionId,target_user_id,command})}).then(x=>x.json()).catch(()=>null);
+    const r=await fetch(`${R.apiBase}/online_p2p.php?action=command&room_id=${R.sessionId}`,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF},body:JSON.stringify({room_id:R.sessionId,target_user_id,command})}).then(x=>x.json()).catch(()=>null);
     toast(r?.ok ? (labels[command]||'دستور ارسال شد.') : 'ارسال دستور انجام نشد.');
   });
   bindAll('or-end-btn',leaveRoom);
@@ -125,13 +137,30 @@ async function pollPermissionRequests(){
 
 async function syncClassPermissions(){
   const r=await api('permissions_state',{session_id:R.sessionId}).catch(()=>null); if(!r?.ok||!r.permissions)return;
+  const prev=Object.assign({},R.permissions);
   Object.assign(R.permissions,r.permissions);
-  const inp=$('#or-chat-input'), btn=$('#or-chat-send'); applyRoomLiveState();
+  if(prev.mic&&!R.permissions.mic&&p2p){setBtn('or-mic-btn',await p2p.forceMic(false));}
+  if(prev.cam&&!R.permissions.cam&&p2p){setBtn('or-cam-btn',await p2p.forceCam(false));}
+  if(prev.screen&&!R.permissions.screen&&p2p){await p2p.stopScreen();setBtn('or-screen-btn',false,false);}
+  if(prev.whiteboard&&!R.permissions.whiteboard) toggleBoard(false);
+  applyRoomLiveState();
 }
 
 async function pollPermissionStatus(){
   const r=await api('permission_status',{session_id:R.sessionId,after_id:permLast}).catch(()=>null); if(!r?.ok)return;
-  for(const x of r.requests||[]){permLast=Math.max(permLast,+x.id); if(x.status==='approved'){R.permissions[x.permission_type]=true; toast(`مشاور اجازه ${permLabel(x.permission_type)} را داد.`);} else toast(`درخواست ${permLabel(x.permission_type)} رد شد.`);}
+  for(const x of r.requests||[]){permLast=Math.max(permLast,+x.id); if(x.status==='approved'){
+      R.permissions[x.permission_type]=true;
+      toast(`مشاور اجازه ${permLabel(x.permission_type)} را داد.`);
+      applyRoomLiveState();
+    } else {
+      R.permissions[x.permission_type]=false;
+      if(x.permission_type==='mic'&&p2p){setBtn('or-mic-btn',await p2p.forceMic(false));}
+      if(x.permission_type==='cam'&&p2p){setBtn('or-cam-btn',await p2p.forceCam(false));}
+      if(x.permission_type==='screen'&&p2p){await p2p.stopScreen();setBtn('or-screen-btn',false,false);}
+      if(x.permission_type==='whiteboard') toggleBoard(false);
+      applyRoomLiveState();
+      toast(`درخواست ${permLabel(x.permission_type)} رد شد.`);
+    }}
 }
 
 function initWhiteboard(){const canvas=$('#wb-canvas'); if(!canvas)return; const ctx=canvas.getContext('2d'); wb={tool:'pen',color:'#000',size:4,drawing:false,last:null,dirty:false,version:0, resize(){const r=canvas.parentElement.getBoundingClientRect(),img=canvas.toDataURL(); canvas.width=Math.max(300,r.width*devicePixelRatio); canvas.height=Math.max(200,r.height*devicePixelRatio); ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0); ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height); const im=new Image(); im.onload=()=>ctx.drawImage(im,0,0,r.width,r.height); im.src=img;}}; const pos=e=>{const r=canvas.getBoundingClientRect(),p=e.touches?e.touches[0]:e;return{x:p.clientX-r.left,y:p.clientY-r.top}}; const down=e=>{e.preventDefault();wb.drawing=true;wb.start=wb.last=pos(e)}; const move=e=>{if(!wb.drawing)return;e.preventDefault();const p=pos(e);ctx.lineCap='round';ctx.lineJoin='round';ctx.lineWidth=wb.size;ctx.strokeStyle=wb.tool==='eraser'?'#fff':wb.color;if(['pen','eraser'].includes(wb.tool)){ctx.beginPath();ctx.moveTo(wb.last.x,wb.last.y);ctx.lineTo(p.x,p.y);ctx.stroke();wb.last=p;wb.dirty=true;}}; const up=e=>{if(!wb.drawing)return;const p=pos(e.changedTouches?e.changedTouches[0]:e); if(['line','rect','circle'].includes(wb.tool)){ctx.strokeStyle=wb.color;ctx.lineWidth=wb.size;ctx.beginPath(); if(wb.tool==='line'){ctx.moveTo(wb.start.x,wb.start.y);ctx.lineTo(p.x,p.y);} if(wb.tool==='rect'){ctx.rect(wb.start.x,wb.start.y,p.x-wb.start.x,p.y-wb.start.y);} if(wb.tool==='circle'){ctx.ellipse((wb.start.x+p.x)/2,(wb.start.y+p.y)/2,Math.abs(p.x-wb.start.x)/2,Math.abs(p.y-wb.start.y)/2,0,0,Math.PI*2);} ctx.stroke();wb.dirty=true;} wb.drawing=false;}; ['mousedown','touchstart'].forEach(x=>canvas.addEventListener(x,down,{passive:false})); ['mousemove','touchmove'].forEach(x=>canvas.addEventListener(x,move,{passive:false})); ['mouseup','mouseleave','touchend'].forEach(x=>canvas.addEventListener(x,up)); $$('.wb-tool[data-tool]').forEach(b=>b.onclick=()=>{$$('.wb-tool[data-tool]').forEach(x=>x.classList.remove('active'));b.classList.add('active');wb.tool=b.dataset.tool;}); $('.wb-tool[data-tool="pen"]')?.classList.add('active'); $$('.wb-color').forEach(c=>c.onclick=()=>{$$('.wb-color').forEach(x=>x.classList.remove('active'));c.classList.add('active');wb.color=c.dataset.color;}); $('#wb-size').oninput=e=>wb.size=+e.target.value; $('[data-clear]')?.addEventListener('click',()=>{if(confirm('تخته پاک شود؟')){ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);wb.dirty=true;}}); $('#wb-pdf-btn')?.addEventListener('click',()=>$('#wb-pdf-input')?.click()); $('#wb-pdf-input')?.addEventListener('change',loadPdfToBoard); $('#wb-pdf-prev')?.addEventListener('click',()=>renderPdfPage(pdfPage-1)); $('#wb-pdf-next')?.addEventListener('click',()=>renderPdfPage(pdfPage+1));
