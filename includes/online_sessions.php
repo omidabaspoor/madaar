@@ -24,10 +24,10 @@ function online_sessions_schema_ready(): bool {
             max_participants INT UNSIGNED DEFAULT 6,
             jitsi_room_name VARCHAR(80) NOT NULL,
             jitsi_password VARCHAR(40),
-            allow_student_mic TINYINT(1) DEFAULT 1,
-            allow_student_cam TINYINT(1) DEFAULT 1,
-            allow_screen_share TINYINT(1) DEFAULT 1,
-            allow_whiteboard TINYINT(1) DEFAULT 1,
+            allow_student_mic TINYINT(1) DEFAULT 0,
+            allow_student_cam TINYINT(1) DEFAULT 0,
+            allow_screen_share TINYINT(1) DEFAULT 0,
+            allow_whiteboard TINYINT(1) DEFAULT 0,
             allow_chat TINYINT(1) DEFAULT 1,
             status ENUM('draft','scheduled','live','ended','cancelled') NOT NULL DEFAULT 'draft',
             started_at DATETIME,
@@ -102,6 +102,21 @@ function online_sessions_schema_ready(): bool {
             PRIMARY KEY (id),
             KEY idx_hand_session_raised (session_id, raised_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+
+        'session_permission_requests' => "CREATE TABLE IF NOT EXISTS session_permission_requests (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            session_id INT UNSIGNED NOT NULL,
+            user_id INT UNSIGNED NOT NULL,
+            user_name VARCHAR(120) NOT NULL,
+            permission_type VARCHAR(20) NOT NULL,
+            status ENUM('pending','approved','denied') NOT NULL DEFAULT 'pending',
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            decided_at DATETIME NULL,
+            decided_by INT UNSIGNED NULL,
+            PRIMARY KEY (id),
+            KEY idx_perm_session (session_id, status, created_at),
+            KEY idx_perm_user (session_id, user_id, permission_type, created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
     ];
 
     $failed = [];
@@ -118,6 +133,57 @@ function online_sessions_schema_ready(): bool {
         error_log('Online sessions schema failed: ' . implode('; ', $failed));
         return $ok = false;
     }
+
+    // Online sessions schema self-healing: ستون‌های نصب‌های قبلی را اضافه/اصلاح می‌کند.
+    try {
+        $cols = [];
+        foreach (db()->query("SHOW COLUMNS FROM online_sessions")->fetchAll() as $c) { $cols[$c['Field']] = true; }
+        $defs = [
+            'description' => "TEXT NULL AFTER title",
+            'scheduled_at' => "DATETIME NULL AFTER description",
+            'duration_min' => "INT UNSIGNED DEFAULT 60 AFTER scheduled_at",
+            'max_participants' => "INT UNSIGNED DEFAULT 6 AFTER duration_min",
+            'jitsi_password' => "VARCHAR(40) NULL AFTER jitsi_room_name",
+            'allow_student_mic' => "TINYINT(1) DEFAULT 0 AFTER jitsi_password",
+            'allow_student_cam' => "TINYINT(1) DEFAULT 0 AFTER allow_student_mic",
+            'allow_screen_share' => "TINYINT(1) DEFAULT 0 AFTER allow_student_cam",
+            'allow_whiteboard' => "TINYINT(1) DEFAULT 0 AFTER allow_screen_share",
+            'allow_chat' => "TINYINT(1) DEFAULT 1 AFTER allow_whiteboard",
+            'started_at' => "DATETIME NULL AFTER status",
+            'ended_at' => "DATETIME NULL AFTER started_at",
+        ];
+        foreach ($defs as $col => $def) {
+            if (empty($cols[$col])) {
+                try { db()->exec("ALTER TABLE online_sessions ADD COLUMN $col $def"); } catch (Throwable $e) {}
+            }
+        }
+    } catch (Throwable $e) { error_log('Online sessions schema self-healing failed: ' . $e->getMessage()); }
+
+    // Self-healing for child tables too (old/beta installs on XAMPP/cPanel).
+    try {
+        $chatCols = [];
+        foreach (db()->query("SHOW COLUMNS FROM session_chat_messages")->fetchAll() as $c) { $chatCols[$c['Field']] = true; }
+        $chatDefs = [
+            'user_name' => "VARCHAR(120) NOT NULL DEFAULT '' AFTER user_id",
+            'user_role' => "VARCHAR(20) NOT NULL DEFAULT 'student' AFTER user_name",
+            'message' => "TEXT NOT NULL AFTER user_role",
+            'message_type' => "ENUM('text','emoji','system','file') DEFAULT 'text' AFTER message",
+            'created_at' => "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER message_type",
+        ];
+        foreach ($chatDefs as $col => $def) if (empty($chatCols[$col])) { try { db()->exec("ALTER TABLE session_chat_messages ADD COLUMN $col $def"); } catch (Throwable $e) {} }
+        try {
+            $mt = db()->query("SHOW COLUMNS FROM session_chat_messages LIKE 'message_type'")->fetch();
+            if ($mt && strpos((string)($mt['Type'] ?? ''), "'system'") === false) {
+                db()->exec("ALTER TABLE session_chat_messages MODIFY message_type ENUM('text','emoji','system','file') DEFAULT 'text'");
+            }
+        } catch (Throwable $e) {}
+    } catch (Throwable $e) { error_log('Online chat schema self-healing failed: '.$e->getMessage()); }
+    try {
+        $wbCols = [];
+        foreach (db()->query("SHOW COLUMNS FROM whiteboard_snapshots")->fetchAll() as $c) { $wbCols[$c['Field']] = true; }
+        if (empty($wbCols['version'])) { try { db()->exec("ALTER TABLE whiteboard_snapshots ADD COLUMN version INT UNSIGNED DEFAULT 1 AFTER snapshot_json"); } catch (Throwable $e) {} }
+        if (empty($wbCols['saved_at'])) { try { db()->exec("ALTER TABLE whiteboard_snapshots ADD COLUMN saved_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"); } catch (Throwable $e) {} }
+    } catch (Throwable $e) { error_log('Online whiteboard schema self-healing failed: '.$e->getMessage()); }
 
     // بررسی نهایی: همه جداول واقعاً ساخته شدن؟
     try {
@@ -251,7 +317,18 @@ function online_session_student_can_access(int $sessionId, int $studentId): bool
 
 function online_session_delete(int $sessionId, int $advisorId): bool {
     if (!online_sessions_schema_ready()) return false;
+    $s = online_session_get($sessionId);
+    if (!$s || ((int)$s['advisor_id'] !== $advisorId && (current_user()['role'] ?? '') !== 'admin')) return false;
     try {
+        // در بعضی نصب‌ها FK وجود ندارد؛ بنابراین پاک‌سازی وابسته‌ها دستی انجام می‌شود.
+        foreach (['session_participants','whiteboard_snapshots','session_chat_messages','session_reactions','session_hand_raises','session_permission_requests','session_peers','session_signals','session_peer_commands'] as $tbl) {
+            try {
+                if ($tbl === 'session_peers') db()->prepare('DELETE FROM session_peers WHERE room_id=?')->execute([$sessionId]);
+                elseif ($tbl === 'session_signals') db()->prepare('DELETE FROM session_signals WHERE room_id=?')->execute([$sessionId]);
+                elseif ($tbl === 'session_peer_commands') db()->prepare('DELETE FROM session_peer_commands WHERE room_id=?')->execute([$sessionId]);
+                else db()->prepare("DELETE FROM `$tbl` WHERE session_id=?")->execute([$sessionId]);
+            } catch (Throwable $e) {}
+        }
         $stmt = db()->prepare('DELETE FROM online_sessions WHERE id=? AND advisor_id=?');
         $stmt->execute([$sessionId, $advisorId]);
         return $stmt->rowCount() > 0;
@@ -292,10 +369,21 @@ function online_session_update(int $sessionId, int $advisorId, array $data): boo
 
 function online_session_start(int $sessionId, int $advisorId): bool {
     if (!online_sessions_schema_ready()) return false;
+    $session = online_session_get($sessionId);
+    if (!$session || ((int)$session['advisor_id'] !== $advisorId && (current_user()['role'] ?? '') !== 'admin')) return false;
+    if (($session['status'] ?? '') === 'live') return true;
+    if (in_array(($session['status'] ?? ''), ['ended','cancelled'], true)) return false;
     try {
-        $stmt = db()->prepare('UPDATE online_sessions SET status="live", started_at=NOW() WHERE id=? AND advisor_id=?');
-        $stmt->execute([$sessionId, $advisorId]);
-        return $stmt->rowCount() > 0;
+        $stmt = db()->prepare('UPDATE online_sessions SET status="live", started_at=COALESCE(started_at,NOW()), ended_at=NULL WHERE id=? AND advisor_id=? AND status IN ("draft","scheduled")');
+        $stmt->execute([$sessionId, (int)$session['advisor_id']]);
+        $changed = $stmt->rowCount() > 0;
+        if ($changed) {
+            session_chat_send($sessionId, $advisorId, (string)($session['advisor_name'] ?? 'مشاور'), 'system', 'کلاس شروع شد ✅', 'system');
+            foreach (online_session_participants($sessionId) as $p) {
+                notify((int)$p['student_id'], 'کلاس آنلاین شروع شد 🔴', 'کلاس «' . $session['title'] . '» اکنون فعال است.', 'video', 'online_room.php?session=' . $sessionId);
+            }
+        }
+        return $changed || (($session['status'] ?? '') === 'live');
     } catch (Throwable $e) {
         error_log('online_session_start failed: ' . $e->getMessage());
         return false;
@@ -304,9 +392,14 @@ function online_session_start(int $sessionId, int $advisorId): bool {
 
 function online_session_end(int $sessionId, int $advisorId): bool {
     if (!online_sessions_schema_ready()) return false;
+    $session = online_session_get($sessionId);
+    if (!$session || ((int)$session['advisor_id'] !== $advisorId && (current_user()['role'] ?? '') !== 'admin')) return false;
+    if (($session['status'] ?? '') === 'ended') return true;
     try {
-        $stmt = db()->prepare('UPDATE online_sessions SET status="ended", ended_at=NOW() WHERE id=? AND advisor_id=?');
-        $stmt->execute([$sessionId, $advisorId]);
+        $stmt = db()->prepare('UPDATE online_sessions SET status="ended", ended_at=NOW() WHERE id=? AND advisor_id=? AND status<>"cancelled"');
+        $stmt->execute([$sessionId, (int)$session['advisor_id']]);
+        try { session_chat_send($sessionId, $advisorId, (string)($session['advisor_name'] ?? 'مشاور'), 'system', 'کلاس پایان یافت.', 'system'); } catch (Throwable $e) {}
+        try { db()->prepare('DELETE FROM session_peers WHERE room_id=?')->execute([$sessionId]); } catch (Throwable $e) {}
         return $stmt->rowCount() > 0;
     } catch (Throwable $e) {
         error_log('online_session_end failed: ' . $e->getMessage());
@@ -495,4 +588,83 @@ function session_reactions_recent(int $sessionId, int $sinceMinutes = 5): array 
         'fetchAll'
     );
     return $result ?: [];
+}
+
+
+/* ===================================================================
+   Permission requests (student asks host for mic/cam/screen/whiteboard)
+   =================================================================== */
+
+function online_room_permission_schema(): void {
+    try {
+        db()->exec("CREATE TABLE IF NOT EXISTS session_permission_requests (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            session_id INT UNSIGNED NOT NULL,
+            user_id INT UNSIGNED NOT NULL,
+            user_name VARCHAR(120) NOT NULL,
+            permission_type VARCHAR(20) NOT NULL,
+            status ENUM('pending','approved','denied') NOT NULL DEFAULT 'pending',
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            decided_at DATETIME NULL,
+            decided_by INT UNSIGNED NULL,
+            PRIMARY KEY (id),
+            KEY idx_perm_session (session_id, status, created_at),
+            KEY idx_perm_user (session_id, user_id, permission_type, created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    } catch (Throwable $e) { error_log('permission schema failed: '.$e->getMessage()); }
+}
+
+function online_session_is_host(array $session, int $userId, string $role): bool {
+    return $role === 'admin' || ($role === 'advisor' && (int)($session['advisor_id'] ?? 0) === $userId);
+}
+
+function online_permission_latest_decisions(int $sessionId, int $userId): array {
+    online_room_permission_schema();
+    $out = [];
+    try {
+        $st = db()->prepare('SELECT permission_type,status,id FROM session_permission_requests WHERE session_id=? AND user_id=? AND status<>"pending" ORDER BY id DESC');
+        $st->execute([$sessionId, $userId]);
+        foreach ($st->fetchAll() as $r) {
+            $type = (string)$r['permission_type'];
+            if (!isset($out[$type])) $out[$type] = (string)$r['status'];
+        }
+    } catch (Throwable $e) {}
+    return $out;
+}
+
+function online_permission_effective_state(array $session, int $userId, string $role): array {
+    $host = online_session_is_host($session, $userId, $role);
+    if ($host) {
+        return ['mic'=>true, 'cam'=>true, 'screen'=>true, 'whiteboard'=>true, 'chat'=>true];
+    }
+    $base = [
+        'mic'        => !empty($session['allow_student_mic']),
+        'cam'        => !empty($session['allow_student_cam']),
+        'screen'     => !empty($session['allow_screen_share']),
+        'whiteboard' => !empty($session['allow_whiteboard']),
+        // چت آموزشی طبق درخواست کارفرما همیشه در اتاق فعال است؛ کنترل‌های اجازه فقط برای صدا/تصویر/اسکرین/تخته است.
+        'chat'       => true,
+    ];
+    $decisions = online_permission_latest_decisions((int)$session['id'], $userId);
+    foreach (['mic','cam','screen','whiteboard'] as $type) {
+        if (($decisions[$type] ?? '') === 'approved') $base[$type] = true;
+        if (($decisions[$type] ?? '') === 'denied') $base[$type] = false;
+    }
+    return $base;
+}
+
+function online_permission_user_allowed(array $session, int $userId, string $role, string $permission): bool {
+    $state = online_permission_effective_state($session, $userId, $role);
+    return !empty($state[$permission]);
+}
+
+function online_session_status_label(string $status): string {
+    return match ($status) {
+        'draft' => 'پیش‌نویس',
+        'scheduled' => 'زمان‌بندی‌شده',
+        'live' => 'در حال برگزاری',
+        'ended' => 'پایان‌یافته',
+        'cancelled' => 'لغوشده',
+        default => $status,
+    };
 }

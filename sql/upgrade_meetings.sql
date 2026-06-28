@@ -168,3 +168,22 @@ CREATE TABLE IF NOT EXISTS session_hand_raises (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;
+
+
+-- ----------------------------------------------------------
+-- 9. session_permission_requests
+-- ----------------------------------------------------------
+CREATE TABLE IF NOT EXISTS session_permission_requests (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  session_id INT UNSIGNED NOT NULL,
+  user_id INT UNSIGNED NOT NULL,
+  user_name VARCHAR(120) NOT NULL,
+  permission_type VARCHAR(20) NOT NULL,
+  status ENUM('pending','approved','denied') NOT NULL DEFAULT 'pending',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  decided_at DATETIME NULL,
+  decided_by INT UNSIGNED NULL,
+  PRIMARY KEY (id),
+  KEY idx_perm_session (session_id, status, created_at),
+  KEY idx_perm_user (session_id, user_id, permission_type, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

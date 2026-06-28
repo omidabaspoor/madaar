@@ -24,10 +24,10 @@ CREATE TABLE IF NOT EXISTS online_sessions (
     jitsi_room_name VARCHAR(80) NOT NULL,
     jitsi_password VARCHAR(40),
     -- تنظیمات دسترسی
-    allow_student_mic TINYINT(1) DEFAULT 1,
-    allow_student_cam TINYINT(1) DEFAULT 1,
-    allow_screen_share TINYINT(1) DEFAULT 1,
-    allow_whiteboard TINYINT(1) DEFAULT 1,
+    allow_student_mic TINYINT(1) DEFAULT 0,
+    allow_student_cam TINYINT(1) DEFAULT 0,
+    allow_screen_share TINYINT(1) DEFAULT 0,
+    allow_whiteboard TINYINT(1) DEFAULT 0,
     allow_chat TINYINT(1) DEFAULT 1,
     -- وضعیت
     status ENUM('draft','scheduled','live','ended','cancelled') NOT NULL DEFAULT 'draft',
@@ -121,3 +121,22 @@ CREATE TABLE IF NOT EXISTS session_hand_raises (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- پایان migration
+
+
+-- ۷. درخواست‌های دسترسی دانش‌آموزان
+CREATE TABLE IF NOT EXISTS session_permission_requests (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    session_id INT UNSIGNED NOT NULL,
+    user_id INT UNSIGNED NOT NULL,
+    user_name VARCHAR(120) NOT NULL,
+    permission_type VARCHAR(20) NOT NULL,
+    status ENUM('pending','approved','denied') NOT NULL DEFAULT 'pending',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    decided_at DATETIME NULL,
+    decided_by INT UNSIGNED NULL,
+    PRIMARY KEY (id),
+    KEY idx_perm_session (session_id, status, created_at),
+    KEY idx_perm_user (session_id, user_id, permission_type, created_at),
+    CONSTRAINT fk_perm_session FOREIGN KEY (session_id) REFERENCES online_sessions(id) ON DELETE CASCADE,
+    CONSTRAINT fk_perm_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
