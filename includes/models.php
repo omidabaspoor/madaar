@@ -335,7 +335,14 @@ function plan_progress(int $planId): array
 /* ---------- درس‌ها ---------- */
 function all_subjects(): array
 {
-    return db()->query('SELECT * FROM subjects ORDER BY id')->fetchAll();
+    // اگر به هر دلیل seed چندبار تکراری ساخته باشد، در UI فقط یک درس از هر نام نمایش داده شود.
+    try {
+        return db()->query('SELECT s.* FROM subjects s
+            JOIN (SELECT MIN(id) id FROM subjects GROUP BY COALESCE(advisor_id,0), name) x ON x.id=s.id
+            ORDER BY s.id')->fetchAll();
+    } catch (Throwable $e) {
+        return db()->query('SELECT * FROM subjects ORDER BY id')->fetchAll();
+    }
 }
 
 /* ---------- آمار دانش‌آموز ---------- */
@@ -831,7 +838,7 @@ function chapters_for_subject(string $subjectName, string $studentField): array 
 
     $field = is_common_chapter_subject($key) ? 'omumi' : student_field_key($studentField);
 
-    $sql = 'SELECT * FROM chapters WHERE subject_name=? AND field=? AND is_active=1 ORDER BY grade, book_name, sort_order';
+    $sql = 'SELECT c.* FROM chapters c JOIN (SELECT MIN(id) id FROM chapters WHERE subject_name=? AND field=? AND is_active=1 GROUP BY subject_name, grade, field, book_name, chapter_name, COALESCE(advisor_id,0)) x ON x.id=c.id ORDER BY c.grade, c.book_name, c.sort_order';
     $st = db()->prepare($sql);
     $st->execute([$key, $field]);
     $rows = $st->fetchAll();
@@ -852,7 +859,7 @@ function chapters_for_subject(string $subjectName, string $studentField): array 
 /** همه فصل‌ها (برای مدیریت) */
 function all_chapters(?string $field = null, ?string $subjectName = null, ?int $grade = null): array {
     if (!chapters_table_ready()) return [];
-    $sql = 'SELECT * FROM chapters WHERE 1=1';
+    $sql = 'SELECT * FROM chapters WHERE id IN (SELECT MIN(id) FROM chapters GROUP BY subject_name, grade, field, book_name, chapter_name, COALESCE(advisor_id,0))';
     $params = [];
     if ($field) { $sql .= ' AND field=?'; $params[] = $field; }
     if ($subjectName) { $sql .= ' AND subject_name=?'; $params[] = $subjectName; }

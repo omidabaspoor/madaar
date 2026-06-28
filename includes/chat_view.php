@@ -13,17 +13,6 @@ function render_chat(string $role): void
 .chat-shell>.chat-main{height:auto!important;min-height:0!important;display:flex!important;flex-direction:column!important;border-radius:24px!important;overflow:hidden!important;background:linear-gradient(180deg,rgba(28,40,35,.92),rgba(21,32,27,.98))!important;border:1px solid var(--border-soft)!important}
 .chat-shell .chat-contacts{overflow-y:auto!important;flex:1!important;padding:8px!important}.chat-shell .chat-search-wrap{padding:12px!important;border-bottom:1px solid var(--border-soft)!important}.chat-contact-toggle{display:none!important}
 
-/* Direct full-screen chat with advisor for student mode */
-.chat-shell.student-mode {
-  grid-template-columns: 1fr !important;
-}
-.chat-shell.student-mode .chat-list {
-  display: none !important;
-}
-.chat-shell.student-mode .chat-contact-toggle {
-  display: none !important;
-}
-
 @media(max-width:900px){
   .chat-shell{display:block!important;height:calc(100dvh - 142px)!important;min-height:480px!important;position:relative!important;}
   .chat-shell>.chat-main{height:100%!important;}
@@ -52,6 +41,10 @@ function render_chat(string $role): void
 </style>
 <div class="chat-shell <?= $role==='student'?'student-mode':'' ?>">
   <aside class="chat-list" id="chatList" aria-label="فهرست گفتگوها">
+    <div class="chat-list-head">
+      <div><b>گفتگوها</b><span>پیام‌ها و فایل‌ها</span></div>
+      <span class="chat-app-dot"></span>
+    </div>
     <div class="chat-search-wrap">
       <div class="input-group">
         <span class="ig-icon"><?= icon('search',17) ?></span>
@@ -103,7 +96,7 @@ function render_chat(string $role): void
       <input type="file" id="chatFile" accept="application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar,.7z" hidden>
       <button class="chat-tool" type="button" id="attachBtn" data-tip="ارسال عکس یا فایل"><?= icon('paperclip',19) ?></button>
       <button class="chat-tool" type="button" id="voiceBtn" data-tip="ضبط ویس"><?= icon('mic',19) ?></button>
-      <input class="input" id="chatText" placeholder="پیامت را بنویس…" autocomplete="off" maxlength="2000">
+      <input class="input" id="chatText" placeholder="پیام" autocomplete="off" maxlength="2000">
       <button class="btn btn-gold btn-icon" type="submit" id="chatSend" data-tip="ارسال"><?= icon('send',18) ?></button>
     </form>
   </section>
@@ -114,8 +107,8 @@ function render_chat(string $role): void
   <div class="modal chat-attach-sheet">
     <div class="modal-head">
       <div>
-        <h3><?= icon('paperclip',20) ?> ارسال فایل</h3>
-        <p class="muted" style="font-size:.82rem;margin-top:4px">منبع فایل را انتخاب کن</p>
+        <h3><?= icon('paperclip',20) ?> پیوست</h3>
+        <p class="muted" style="font-size:.82rem;margin-top:4px">عکس، ویس یا فایل را انتخاب کنید</p>
       </div>
       <button class="modal-close" data-close><?= icon('close',18) ?></button>
     </div>

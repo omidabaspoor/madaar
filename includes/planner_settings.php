@@ -25,6 +25,12 @@ function planner_settings_defaults(): array {
         'taraz_samurai_enabled'=> '1',          // ترازسنج کشوری و کنکوری مَدار
         'precision_samurai_enabled'=> '1',      // آسیب‌شناسی تعاملی و تحلیل ضریب دقت
         'auto_mark_missed_enabled'=> '1',       // قرمزکردن خودکار تسک‌های منقضی‌شده
+        'sms_enabled'          => '0',           // فعال‌سازی ارسال پیامک sms.ir
+        'sms_api_key'          => '',            // کلید API پنل sms.ir
+        'sms_line_number'      => '',            // شماره خط ارسال‌کننده
+        'sms_template_id'      => '',            // شناسه قالب خدماتی sms.ir برای عبور از بلک‌لیست
+        'sms_param_date'       => 'DATE',        // نام متغیر تاریخ در قالب
+        'sms_param_time'       => 'TIME',        // نام متغیر ساعت در قالب
     ];
 }
 

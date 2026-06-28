@@ -55,14 +55,11 @@ define('UPLOAD_DIR', __DIR__ . '/../uploads');
 define('MAX_UPLOAD', 2 * 1024 * 1024);
 
 // --- پیامک (sms.ir) ---
-// ⚠️ موقتاً غیرفعال است تا شماره خط و کلید Production تنظیم شود.
-// وقتی آماده شد:
-//   ۱. SMS_ENABLED را true کن
-//   ۲. SMS_API_KEY را با کلید Production جایگزین کن
-//   ۳. SMS_LINE_NUMBER را با شماره خط واقعی جایگزین کن
+// تنظیم اصلی پیامک از پنل مشاور > تنظیمات انجام می‌شود.
+// این مقادیر فقط fallback سیستمی هستند.
 define('SMS_ENABLED', false);
 define('SMS_API_KEY', '');
-define('SMS_API_URL', 'https://api.sms.ir/v1/send/array');
+define('SMS_API_URL', 'https://api.sms.ir/v1/send/bulk');
 define('SMS_LINE_NUMBER', '');
 define('SMS_TIMEOUT', 10);
 

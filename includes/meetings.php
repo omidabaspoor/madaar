@@ -71,7 +71,18 @@ function meetings_for_student(int $studentId): array {
 
 function meetings_for_advisor(int $advisorId): array {
     meetings_schema_ready();
-    $st = db()->prepare('SELECT s.*, u.full_name student_name, u.field student_field, u.grade student_grade, u.phone student_phone FROM consultation_sessions s JOIN users u ON u.id=s.student_id WHERE s.advisor_id=? ORDER BY s.session_date ASC, s.session_time ASC');
+    sms_log_schema_ready();
+    $st = db()->prepare('SELECT s.*, u.full_name student_name, u.field student_field, u.grade student_grade, u.phone student_phone,
+        sl.status sms_status, sl.error_message sms_error, sl.api_message_id sms_message_id, sl.created_at sms_logged_at, sl.sent_at sms_sent_at
+        FROM consultation_sessions s
+        JOIN users u ON u.id=s.student_id
+        LEFT JOIN sms_log sl ON sl.id = (
+            SELECT id FROM sms_log
+            WHERE related_id=s.id AND template_type IN ("meeting_class","meeting_consultation")
+            ORDER BY created_at DESC LIMIT 1
+        )
+        WHERE s.advisor_id=?
+        ORDER BY s.session_date ASC, s.session_time ASC');
     $st->execute([$advisorId]);
     return $st->fetchAll();
 }
@@ -272,45 +283,79 @@ function meetings_confirm(int $advisorId, string $draftGroupId): array {
     db()->prepare('UPDATE consultation_sessions SET status="scheduled" WHERE advisor_id=? AND draft_group_id=? AND status="draft"')
         ->execute([$advisorId, $draftGroupId]);
 
-    // ارسال اعلان + SMS به هر دانش‌آموز
+    // ارسال اعلان درون‌برنامه‌ای + آماده‌سازی پیامک‌های متناظر
     $results = ['ok' => true, 'sent' => 0, 'failed' => 0, 'no_phone' => 0, 'details' => []];
+    $smsItems = [];
+    $detailIndexByStudent = [];
 
     foreach ($rows as $r) {
         $studentId = (int)$r['student_id'];
+        $rowDate = (string)$r['session_date'];
+        $rowTime = (string)($r['session_time'] ?? '');
 
-        // اعلان درون‌برنامه‌ای
-        $timeText = $time ? ' ساعت ' . fa_num(substr((string)$time, 0, 5)) : ' (ساعت توافقی)';
+        // اعلان درون‌برنامه‌ای؛ تاریخ/ساعت دقیق همان ردیف جلسه استفاده می‌شود.
+        $timeText = $rowTime !== '' ? ' ساعت ' . fa_num(substr($rowTime, 0, 5)) : '';
         $typeLabel = $sessionType === 'class' ? 'کلاس درسی' : 'جلسه مشاوره';
-        $body = ($sessionType === 'class' ? 'یک کلاس درسی' : 'یک جلسه مشاوره') . ' با عنوان «' . $title . '» برای تاریخ ' . jalali_date($date) . $timeText . ' توسط ' . $advName . ' تنظیم شد.';
+        $body = ($sessionType === 'class' ? 'یک کلاس درسی' : 'یک جلسه مشاوره') . ' با عنوان «' . $title . '» برای تاریخ ' . jalali_date($rowDate) . $timeText . ' توسط ' . $advName . ' تنظیم شد.';
         notify($studentId, '📅 ' . $typeLabel . ' جدید برنامه‌ریزی شد', $body, 'calendar', 'student/meetings.php');
 
-        // ارسال پیامک
-        $smsStatus = 'no_phone';
-        $smsError = null;
-        if (!empty($r['student_phone'])) {
-            $message = sms_build_meeting_message($title, $date, $time, $sessionType);
-            $smsResult = sms_send(
-                $r['student_phone'],
-                $message,
-                $sessionType === 'class' ? 'meeting_class' : 'meeting_consultation',
-                (int)$r['id'],
-                $studentId
-            );
-            $smsStatus = $smsResult['status'];
-            $smsError = $smsResult['error'];
-            if ($smsStatus === 'sent') $results['sent']++;
-            elseif ($smsStatus === 'failed') $results['failed']++;
-        } else {
-            $results['no_phone']++;
-        }
-
-        $results['details'][] = [
+        $detail = [
             'student_id' => $studentId,
             'student_name' => $r['student_name'],
-            'sms_status' => $smsStatus,
-            'sms_error' => $smsError,
+            'sms_status' => 'no_phone',
+            'sms_error' => null,
+        ];
+        $detailIndexByStudent[$studentId] = count($results['details']);
+        $results['details'][] = $detail;
+
+        if (empty($r['student_phone'])) {
+            $results['no_phone']++;
+            continue;
+        }
+
+        $smsItems[] = [
+            'phone' => $r['student_phone'],
+            'message' => sms_build_meeting_message($title, $rowDate, $rowTime, $sessionType),
+            'date_text' => jalali_date($rowDate),
+            'time_text' => $rowTime !== '' ? fa_num(substr($rowTime, 0, 5)) : '—',
+            'user_id' => $studentId,
+            'related_id' => (int)$r['id'],
+            'meta' => ['student_id' => $studentId],
         ];
     }
+
+    // ارسال واقعی پیامک‌ها با endpoint رسمی likeToLike؛ برای هر دانش‌آموز متن متناظر با تاریخ/ساعت خودش ارسال می‌شود.
+    if ($smsItems) {
+        $smsBatch = sms_send_like_to_like(
+            $smsItems,
+            $sessionType === 'class' ? 'meeting_class' : 'meeting_consultation',
+            $advisorId
+        );
+        $results['sent'] = (int)($smsBatch['sent'] ?? 0);
+        $results['failed'] = (int)($smsBatch['failed'] ?? 0);
+        if (($smsBatch['status'] ?? '') === 'disabled') {
+            // اگر سرویس تنظیم نشده باشد، شماره‌دارها خطای ارسال محسوب می‌شوند تا مشاور متوجه شود.
+            $results['failed'] = count($smsItems);
+            foreach ($smsItems as $it) {
+                $sid = (int)($it['meta']['student_id'] ?? 0);
+                if ($sid && isset($detailIndexByStudent[$sid])) {
+                    $idx = $detailIndexByStudent[$sid];
+                    $results['details'][$idx]['sms_status'] = 'disabled';
+                    $results['details'][$idx]['sms_error'] = $smsBatch['error'] ?? 'سرویس پیامک فعال یا کامل تنظیم نشده است';
+                }
+            }
+        }
+        foreach (($smsBatch['details'] ?? []) as $d) {
+            $sid = (int)($d['meta']['student_id'] ?? $d['user_id'] ?? 0);
+            if ($sid && isset($detailIndexByStudent[$sid])) {
+                $idx = $detailIndexByStudent[$sid];
+                $results['details'][$idx]['sms_status'] = (string)($d['status'] ?? $smsBatch['status'] ?? 'failed');
+                $results['details'][$idx]['sms_error'] = $d['error'] ?? ($smsBatch['error'] ?? null);
+            }
+        }
+    }
+
+    return $results;
 
     return $results;
 }
@@ -333,7 +378,7 @@ function meetings_cancel(int $meetingId, int $userId, string $role): bool {
 
     $dateFormatted = jalali_date($meeting['session_date']);
     $clean_time = $meeting['session_time'];
-    $timeFormatted = $clean_time ? ' ساعت ' . fa_num(substr((string)$clean_time, 0, 5)) : ' (ساعت توافقی)';
+    $timeFormatted = $clean_time ? ' ساعت ' . fa_num(substr((string)$clean_time, 0, 5)) : '';
     $typeLabel = ($meeting['session_type'] ?? 'consultation') === 'class' ? 'کلاس درسی' : 'جلسه مشاوره';
 
     if ($role === 'advisor') {

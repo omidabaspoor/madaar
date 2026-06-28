@@ -202,7 +202,7 @@ panel_start('خانه', jalali_date('now'), 'student', 'dashboard', ['student.cs
   window.NOTIF_READ_URL = '<?= url('api/notifications.php?read=1') ?>';
   window.API_MOOD = '<?= url('api/mood.php') ?>';
 
-  // ===== لایو داشبورد — آپدیت خودکار هر ۱۰ ثانیه =====
+  // ===== لایو داشبورد — آپدیت خودکار هر ۲ ثانیه =====
   (function(){
     let lastHash = '';
     async function liveRefresh(){
@@ -243,7 +243,19 @@ panel_start('خانه', jalali_date('now'), 'student', 'dashboard', ['student.cs
         } else if(d.unread_msg <= 0 && msgDot) msgDot.remove();
       } catch(_){}
     }
-    setInterval(liveRefresh, 10000);
+    window.addEventListener('madar:student-live', (ev)=>{
+      const d = ev.detail || {};
+      if(d.today_pct !== undefined) {
+        const bar = document.querySelector('.greet-progress .progress > span');
+        if(bar) bar.style.width = d.today_pct + '%';
+        const lbl = document.querySelector('.greet-progress .between span:last-child');
+        if(lbl) {
+          const fa = window.faNum || (n=>String(n));
+          lbl.textContent = fa(d.today_pct) + '٪ · کامل ' + fa(d.today_full||0) + ' / ناقص ' + fa(d.today_partial||0);
+        }
+      }
+    });
+    setInterval(liveRefresh, 2000);
     // وقتی visible شد فوری چک کن
     document.addEventListener('visibilitychange',()=>{ if(!document.hidden) setTimeout(liveRefresh, 800); });
   })();

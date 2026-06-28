@@ -33,6 +33,7 @@ function panel_start(string $title, string $subtitle, string $role, string $acti
             ['meetings','جلسات','calendar','admin/schedule_meeting.php'],
             ['online_sessions','جلسات آنلاین','video','admin/online_sessions.php'],
             ['messages','پیام‌ها','message','admin/messages.php'],
+            is_chief_advisor() ? ['chat_users','کاربران چت','message','admin/chat_users.php'] : null,
             is_chief_advisor() ? ['advisors','مشاوران','users','admin/advisors.php'] : null,
         ]),
         'other' => [
@@ -46,6 +47,7 @@ function panel_start(string $title, string $subtitle, string $role, string $acti
             ['plan','برنامه','calendar','student/plan.php'],
             ['reports','گزارش','edit','student/reports.php?type=daily'],
             ['progress','پیشرفت','chart','student/progress.php'],
+            ['ranks','رتبه‌ها','trophy','student/ranks.php'],
             ['reviews','مرور','repeat','student/reviews.php'],
             ['exams','آزمون‌ها','clipboard','student/exams.php'],
             ['exam_analyses','تحلیل آزمون','chart','student/exam_analyses.php'],
@@ -59,6 +61,12 @@ function panel_start(string $title, string $subtitle, string $role, string $acti
             ['profile','پروفایل','user','student/profile.php'],
         ],
     ];
+
+    // فیلتر منو برای مشاورهایی که دسترسی صفحه‌ای محدود دارند.
+    if ($role === 'admin' && ($u['role'] ?? '') === 'advisor' && advisor_has_custom_page_access((int)$u['id'])) {
+        $items['main'] = array_values(array_filter($items['main'], fn($it) => advisor_can_access_page((int)$u['id'], $it[0])));
+        $items['other'] = array_values(array_filter($items['other'], fn($it) => advisor_can_access_page((int)$u['id'], $it[0])));
+    }
 
     $notifCount = unread_notif_count((int)$u['id']);
     $msgCount   = unread_msg_count((int)$u['id']);
@@ -108,9 +116,11 @@ function panel_start(string $title, string $subtitle, string $role, string $acti
       </div>
       <div class="tb-actions">
         <?php if ($role === 'admin' || $role === 'advisor'): ?>
+      <?php if (($u['role'] ?? '') !== 'advisor' || advisor_can_access_page((int)$u['id'], 'guide')): ?>
       <a href="<?= url('admin/guide.php') ?>" class="btn btn-ghost btn-sm flex items-center gap-1.5" style="font-weight: 900; border: 1px solid var(--gold); border-radius: 12px; height: 38px; color: var(--gold-light);">
         📖 <span>راهنما</span>
       </a>
+      <?php endif; ?>
         <?php else: ?>
       <a href="<?= url('student/guide.php') ?>" class="btn btn-ghost btn-sm flex items-center gap-1.5" style="font-weight: 900; border: 1px solid var(--sage); border-radius: 12px; height: 38px; color: var(--sage-light);">
         📖 <span>راهنما</span>
@@ -118,7 +128,7 @@ function panel_start(string $title, string $subtitle, string $role, string $acti
         <?php endif; ?>
         <a href="<?= url($role==='admin'?'admin/messages.php':'student/messages.php') ?>" class="tb-btn" data-tip="پیام‌ها"><?= icon('message',20) ?><?php if($msgCount>0):?><span class="dot"></span><?php endif;?></a>
         <button class="tb-btn" id="notifBtn" data-tip="اعلان‌ها"><?= icon('bell',20) ?><?php if($notifCount>0):?><span class="dot"></span><?php endif;?></button>
-        <span class="badge badge-sage" style="padding:8px 12px"><?= icon('fire',15) ?> <?= fa_num($u['streak'] ?? 0) ?> روز</span>
+        <span class="badge badge-sage" style="padding:8px 12px"><?= icon('fire',15) ?> <span data-live-streak><?= fa_num($u['streak'] ?? 0) ?></span> روز</span>
       </div>
     </header>
     <main class="content">
@@ -185,6 +195,7 @@ function panel_end(array $extraJs = []): void
 <script>
   window.NOTIF_URL = window.NOTIF_URL || '<?= url('api/notifications.php') ?>';
   window.NOTIF_READ_URL = window.NOTIF_READ_URL || '<?= url('api/notifications.php?read=1') ?>';
+  window.PANEL_LIVE_URL = window.PANEL_LIVE_URL || '<?= url('api/live.php') ?>';
 </script>
 <?php
   $finalJs = ['panel.js'];

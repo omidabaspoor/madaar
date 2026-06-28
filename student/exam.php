@@ -67,7 +67,7 @@ page_head('آزمون: ' . $exam['title'], '', ['exam.css']);
   <header class="exam-bar between wrap gap-3" style="align-items:center;background:var(--surface-2);border-bottom:1px solid var(--border-soft);padding:12px 20px;transition:all 0.2s">
     <div class="exam-bar-info flex gap-3 wrap" style="align-items:center">
       <a href="<?= url('student/exams.php') ?>" class="btn btn-ghost btn-sm flex gap-1" style="color:var(--text-2);align-items:center"><?= icon('arrow-right',16) ?> خروج</a>
-      <a href="<?= url('student/exam_pdf.php?id=' . $examId) ?>" target="_blank" class="btn btn-ghost btn-sm flex gap-1" style="border-color:var(--sage); color:var(--sage-light); font-weight:bold; align-items:center" title="چاپ یا دریافت PDF دفترچه سوالات"><?= icon('clipboard',16) ?> <span>خروجی PDF سوالات</span></a>
+      <a href="<?= url('student/exam_pdf.php?id=' . $examId) ?>" target="_blank" class="btn btn-ghost btn-sm flex gap-1" style="border-color:var(--sage); color:var(--sage-light); font-weight:bold; align-items:center" title="دریافت یا نمایش PDF سوالات"><?= icon('clipboard',16) ?> <span>PDF</span></a>
       <div class="eb-title" style="font-size:1.2rem;font-weight:900;color:var(--gold-light)"><?= e($exam['title']) ?></div>
       <div class="eb-sub badge badge-sage"><span id="answeredCount" style="font-weight:900">۰</span> / <?= fa_num($totalQ) ?> پاسخ‌داده</div>
     </div>
@@ -78,8 +78,8 @@ page_head('آزمون: ' . $exam['title'], '', ['exam.css']);
         <?= icon('clock',20) ?> <span id="timerText">--:--</span>
       </div>
       <?php endif; ?>
-      <button type="button" class="btn btn-ghost btn-sm flex gap-1 text-c" id="replayExamTour" style="font-weight:900"><?= icon('info',16) ?> راهنما</button>
-      <button class="btn btn-gold btn-lg flex gap-1 text-c" id="finishBtn" style="font-weight:900;padding:0 24px"><?= icon('check',18) ?> پایان و ثبت آزمون</button>
+      <button type="button" class="btn btn-ghost btn-sm flex gap-1 text-c" id="replayExamTour" style="font-weight:900"><?= icon('info',16) ?> <span>راهنما</span></button>
+      <button class="btn btn-gold btn-lg flex gap-1 text-c" id="finishBtn" style="font-weight:900;padding:0 24px"><?= icon('check',18) ?> <span>ثبت</span></button>
     </div>
   </header>
 
@@ -90,36 +90,40 @@ page_head('آزمون: ' . $exam['title'], '', ['exam.css']);
     <div class="grid gap-4 exam-smart-layout exam-samurai-layout" style="grid-template-columns:repeat(auto-fit, minmax(min(100%, 450px), 1fr));height:calc(100vh - 75px);padding:20px;max-width:1600px;margin:0 auto">
       
       <!-- پنل راست: دفترچه سوالات تعاملی با زوم و اسکرول و ورق‌زدن -->
-      <section class="booklet-viewer-panel panel flex" style="flex-direction:column;padding:0;background:var(--surface-1);border:1px solid var(--border-soft);border-radius:var(--r-lg);overflow:hidden;position:relative;transition:all 0.2s">
-        <div class="booklet-toolbar between panel-head wrap gap-2" style="padding:10px 16px;background:var(--surface-2);border-bottom:1px solid var(--border-soft);margin:0;align-items:center">
+      <section class="booklet-viewer-panel panel flex" id="bookletViewerPanel" style="flex-direction:column;padding:0;background:var(--surface-1);border:1px solid var(--border-soft);border-radius:var(--r-lg);overflow:hidden;position:relative;transition:all 0.2s">
+        <button type="button" class="booklet-tools-toggle" id="bookletToolsToggle" aria-expanded="true" title="نمایش یا بستن ابزارهای دفترچه">بستن ابزار</button>
+        <div class="booklet-toolbar between panel-head wrap gap-2" id="bookletToolbar" style="padding:10px 16px;background:var(--surface-2);border-bottom:1px solid var(--border-soft);margin:0;align-items:center">
           <div class="flex gap-2" style="align-items:center">
             <span class="badge badge-gold flex gap-1" style="align-items:center;font-weight:900;font-size:.85rem" id="bookletTitleBadge"><?= icon($firstSheet['type']==='pdf'?'paperclip':'image',16) ?> دفترچه‌ی سوالات (ص ۱ از <?= count($sheetItems) ?>)</span>
-            <span class="muted" id="bookletHint" style="font-size:.78rem"><?= $firstSheet['type']==='pdf'?'PDF داخل همین باکس نمایش داده می‌شود':'با موس/انگشت بکشید' ?></span>
+            <span class="muted" id="bookletHint" style="font-size:.78rem"><?= $firstSheet['type']==='pdf'?'نمایش دفترچه PDF':'برای جابه‌جایی، برگه را بکشید' ?></span>
           </div>
 
           <!-- ناوبری صفحات/فایل‌های چندتایی -->
           <?php if(count($sheetItems) > 1): ?>
             <div class="flex gap-1 booklet-pages-nav" style="align-items:center;background:var(--surface-1);padding:2px 6px;border-radius:6px;direction:ltr">
-              <button type="button" class="btn btn-ghost btn-sm" id="prevSheetPageBtn" title="صفحه قبل" style="padding:0 8px;font-weight:bold" disabled>◀ قبلی</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="prevSheetPageBtn" title="صفحه قبل" style="padding:0 8px;font-weight:bold" disabled><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg><span>صفحه قبل</span></button>
               <select id="sheetPageSelect" class="select" style="margin:0;height:28px;padding:0 10px;font-size:.85rem;font-weight:bold;width:auto">
                 <?php foreach($sheetItems as $si => $item): ?>
                   <option value="<?= (int)$si ?>" data-src="<?= e($item['url']) ?>" data-type="<?= e($item['type']) ?>">ص <?= $si+1 ?><?= $item['type']==='pdf'?' · PDF':'' ?></option>
                 <?php endforeach; ?>
               </select>
-              <button type="button" class="btn btn-ghost btn-sm" id="nextSheetPageBtn" title="صفحه بعد" style="padding:0 8px;font-weight:bold">بعدی ▶</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="nextSheetPageBtn" title="صفحه بعد" style="padding:0 8px;font-weight:bold"><span>صفحه بعد</span><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
             </div>
           <?php endif; ?>
 
           <div class="flex gap-1" id="imageZoomControls" style="align-items:center;direction:ltr;background:var(--surface-1);padding:2px 8px;border-radius:6px">
-            <button type="button" class="btn btn-ghost btn-sm" id="zoomOutBtn" title="کوچک‌نمایی" style="font-weight:900;font-size:1.2rem;width:28px;height:28px;padding:0">-</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="zoomOutBtn" title="کوچک‌نمایی" aria-label="کوچک‌نمایی" style="font-weight:900;font-size:1.2rem;width:28px;height:28px;padding:0"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M8 11h6M16.5 16.5 21 21"/></svg></button>
             <span id="zoomLevelText" style="font-family:monospace;font-size:.85rem;font-weight:bold;width:44px;text-align:center;color:var(--text-1)">100%</span>
-            <button type="button" class="btn btn-ghost btn-sm" id="zoomInBtn" title="بزرگ‌نمایی" style="font-weight:900;font-size:1.2rem;width:28px;height:28px;padding:0">+</button>
-            <button type="button" class="btn btn-ghost btn-sm" id="zoomResetBtn" title="اندازه اصلی" style="font-weight:900;font-size:1.1rem;width:28px;height:28px;padding:0;color:var(--gold)">↺</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="zoomInBtn" title="بزرگ‌نمایی" aria-label="بزرگ‌نمایی" style="font-weight:900;font-size:1.2rem;width:28px;height:28px;padding:0"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M11 8v6M8 11h6M16.5 16.5 21 21"/></svg></button>
+            <button type="button" class="btn btn-ghost btn-sm" id="zoomResetBtn" title="اندازه مناسب صفحه" aria-label="اندازه مناسب صفحه" style="font-weight:900;font-size:1.1rem;width:28px;height:28px;padding:0;color:var(--gold)"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.35" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5"/><path d="M20 15v5h-5"/><path d="M4 4l6 6"/><path d="M20 20l-6-6"/></svg></button>
+            <button type="button" class="btn btn-ghost btn-sm" id="rotateLeftBtn" title="چرخش به چپ" aria-label="چرخش به چپ" style="font-weight:900;font-size:1rem;width:28px;height:28px;padding:0"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.35" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7v6h6"/><path d="M5 13a7 7 0 1 0 2-7"/></svg></button>
+            <button type="button" class="btn btn-ghost btn-sm" id="rotateRightBtn" title="چرخش به راست" aria-label="چرخش به راست" style="font-weight:900;font-size:1rem;width:28px;height:28px;padding:0"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.35" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7v6h-6"/><path d="M19 13a7 7 0 1 1-2-7"/></svg></button>
           </div>
+          <button type="button" class="btn btn-ghost btn-sm <?= empty($firstSheet['url'])?'hidden':'' ?>" id="pdfCompatBtn" title="نمایش فایل با مرورگر" style="font-weight:900;color:var(--sage-light);height:34px"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 15h8M8 18h5"/></svg><span>نمایش با مرورگر</span></button>
           <div class="flex gap-1 <?= $firstSheet['type']==='pdf'?'':'hidden' ?>" id="pdfPageControls" style="align-items:center;direction:ltr;background:var(--surface-1);padding:2px 8px;border-radius:6px">
-            <button type="button" class="btn btn-ghost btn-sm" id="pdfPrevPage" style="padding:0 8px;font-weight:bold">◀</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="pdfPrevPage" title="صفحه قبل PDF" aria-label="صفحه قبل PDF" style="padding:0 8px;font-weight:bold"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
             <span id="pdfPageText" style="font-family:monospace;font-size:.82rem;font-weight:900;min-width:62px;text-align:center;color:var(--text-1)">1/1</span>
-            <button type="button" class="btn btn-ghost btn-sm" id="pdfNextPage" style="padding:0 8px;font-weight:bold">▶</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="pdfNextPage" title="صفحه بعد PDF" aria-label="صفحه بعد PDF" style="padding:0 8px;font-weight:bold"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
           </div>
         </div>
         
@@ -127,11 +131,22 @@ page_head('آزمون: ' . $exam['title'], '', ['exam.css']);
           <img id="bookletImg" class="<?= $firstSheet['type']==='pdf'?'hidden':'' ?>" src="<?= $firstSheet['type']==='image' ? e($firstSheet['url']) : '' ?>" alt="Exam Booklet Sheet" style="max-width:none;max-height:none;transition:transform 0.08s ease;border-radius:12px;box-shadow:0 12px 36px rgba(0,0,0,0.8);position:absolute;transform:translate(0px, 0px) scale(1)">
           <div id="bookletPdf" class="booklet-pdf-canvas-wrap <?= $firstSheet['type']==='pdf'?'':'hidden' ?>" data-src="<?= $firstSheet['type']==='pdf' ? e($firstSheet['url']) : '' ?>">
             <canvas id="bookletPdfCanvas"></canvas>
+            <iframe id="bookletNativePdf" class="booklet-native-pdf hidden" title="نمایش سازگار PDF" loading="lazy" scrolling="auto" referrerpolicy="same-origin"></iframe>
             <div class="pdf-page-loading hidden" id="pdfPageLoading"><span class="spinner"></span> در حال آماده‌سازی PDF…</div>
           </div>
           <div id="bookletPdfFallback" class="booklet-pdf-fallback hidden">
-            <b>PDF داخل مرورگر آماده نشد.</b>
-            <button type="button" id="bookletPdfRetry" class="btn btn-gold btn-sm">تلاش دوباره</button>
+            <b>نمایش PDF آماده نشد.</b>
+            <small>برای ادامه، نمایش با مرورگر یا بازکردن فایل را انتخاب کنید.</small>
+            <div class="flex gap-2 wrap" style="justify-content:center">
+              <button type="button" id="bookletPdfRetry" class="btn btn-gold btn-sm">تلاش دوباره</button>
+              <button type="button" id="bookletPdfCompatRetry" class="btn btn-ghost btn-sm">نمایش با مرورگر</button>
+              <a id="bookletPdfOpenLink" href="#" target="_blank" class="btn btn-ghost btn-sm">باز کردن PDF</a>
+            </div>
+          </div>
+          <div id="bookletFileFallback" class="booklet-file-fallback hidden">
+            <b>پیش‌نمایش این فایل در آزمون پشتیبانی نمی‌شود.</b>
+            <small>برای مشاهده، فایل را در صفحه جدید باز کنید.</small>
+            <a id="bookletFileOpenLink" href="#" target="_blank" class="btn btn-gold btn-sm">باز کردن فایل</a>
           </div>
         </div>
       </section>
@@ -246,7 +261,7 @@ page_head('آزمون: ' . $exam['title'], '', ['exam.css']);
         </div>
         <?php endforeach; ?>
       </div>
-      <button class="btn btn-gold btn-block" id="finishBtn2" style="margin-top:14px"><?= icon('check',16) ?> پایان و ثبت آزمون</button>
+      <button class="btn btn-gold btn-block" id="finishBtn2" style="margin-top:14px"><?= icon('check',16) ?> ثبت آزمون</button>
     </aside>
   <?php endif; ?>
 </div>
@@ -255,7 +270,7 @@ page_head('آزمون: ' . $exam['title'], '', ['exam.css']);
 <div id="examOnboardingTourOverlay" class="exam-tour-overlay hidden" aria-modal="true" role="dialog">
   <div class="exam-tour-card panel">
     <div class="exam-tour-top">
-      <span class="badge badge-gold"><?= icon('sparkles',16) ?> راهنمای سریع آزمون</span>
+      <span class="badge badge-gold"><?= icon('sparkles',16) ?> راهنمای آزمون</span>
       <button type="button" class="btn btn-ghost btn-sm skip-tour-btn" id="skipTourBtn" title="بستن راهنما">×</button>
     </div>
     <div class="tour-content">

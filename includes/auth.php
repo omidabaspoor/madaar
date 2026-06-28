@@ -72,6 +72,110 @@ function current_user(): ?array
 function is_logged_in(): bool { return current_user() !== null; }
 function user_role(): ?string { return current_user()['role'] ?? null; }
 
+
+/* ---------- دسترسی صفحه‌های پنل مشاور ---------- */
+function advisor_page_catalog(): array
+{
+    return [
+        'dashboard'       => ['label'=>'داشبورد', 'icon'=>'home', 'path'=>'admin/dashboard.php'],
+        'students'        => ['label'=>'دانش‌آموزان', 'icon'=>'users', 'path'=>'admin/students.php'],
+        'plans'           => ['label'=>'برنامه‌ها و برنامه‌ریز', 'icon'=>'calendar', 'path'=>'admin/plans.php', 'aliases'=>['admin/plan_builder.php']],
+        'student_reports' => ['label'=>'گزارش حرفه‌ای', 'icon'=>'edit', 'path'=>'admin/student_reports.php', 'aliases'=>['admin/student_report_pdf.php']],
+        'reports'         => ['label'=>'گزارش عملکرد', 'icon'=>'chart', 'path'=>'admin/reports.php'],
+        'reviews'         => ['label'=>'مرورهای دانش‌آموزان', 'icon'=>'repeat', 'path'=>'admin/reviews.php'],
+        'mock_exam'       => ['label'=>'آزمون‌های آزمایشی', 'icon'=>'target', 'path'=>'admin/mock_exam_reports.php'],
+        'exams'           => ['label'=>'آزمون‌ساز', 'icon'=>'clipboard', 'path'=>'admin/exams.php', 'aliases'=>['admin/exam_builder.php','admin/exam_results.php']],
+        'internal_exam'   => ['label'=>'تحلیل آزمون', 'icon'=>'chart', 'path'=>'admin/internal_exam_reports.php'],
+        'meetings'        => ['label'=>'جلسات', 'icon'=>'calendar', 'path'=>'admin/schedule_meeting.php'],
+        'online_sessions' => ['label'=>'جلسات آنلاین', 'icon'=>'video', 'path'=>'admin/online_sessions.php'],
+        'messages'        => ['label'=>'پیام‌ها', 'icon'=>'message', 'path'=>'admin/messages.php'],
+        'achievements'    => ['label'=>'دستاوردها', 'icon'=>'trophy', 'path'=>'admin/achievements.php'],
+        'guide'           => ['label'=>'راهنما', 'icon'=>'book', 'path'=>'admin/guide.php'],
+        'settings'        => ['label'=>'تنظیمات', 'icon'=>'settings', 'path'=>'admin/settings.php'],
+    ];
+}
+
+function advisor_page_access_schema_ready(): bool
+{
+    static $ok = null;
+    if ($ok !== null) return $ok;
+    try {
+        db()->exec("CREATE TABLE IF NOT EXISTS advisor_page_access (
+            id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            advisor_id INT UNSIGNED NOT NULL,
+            page_key VARCHAR(60) NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY uq_advisor_page (advisor_id, page_key),
+            KEY idx_apa_advisor (advisor_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        return $ok = true;
+    } catch (Throwable $e) { return $ok = false; }
+}
+
+function advisor_allowed_page_keys(int $advisorId): array
+{
+    if (!$advisorId || !advisor_page_access_schema_ready()) return [];
+    try {
+        $st = db()->prepare('SELECT page_key FROM advisor_page_access WHERE advisor_id=?');
+        $st->execute([$advisorId]);
+        return array_map('strval', $st->fetchAll(PDO::FETCH_COLUMN));
+    } catch (Throwable $e) { return []; }
+}
+
+function advisor_has_custom_page_access(int $advisorId): bool
+{
+    if (!$advisorId || !advisor_page_access_schema_ready()) return false;
+    try {
+        $st = db()->prepare('SELECT COUNT(*) FROM advisor_page_access WHERE advisor_id=?');
+        $st->execute([$advisorId]);
+        return (int)$st->fetchColumn() > 0;
+    } catch (Throwable $e) { return false; }
+}
+
+function advisor_can_access_page(int $advisorId, string $pageKey): bool
+{
+    if (!$advisorId) return false;
+    if (!advisor_has_custom_page_access($advisorId)) return true; // سازگاری با مشاورهای قبلی: بدون تنظیم یعنی همه صفحات
+    return in_array($pageKey, advisor_allowed_page_keys($advisorId), true);
+}
+
+function advisor_first_allowed_admin_path(int $advisorId): string
+{
+    foreach (advisor_page_catalog() as $key => $page) {
+        if (advisor_can_access_page($advisorId, $key)) return $page['path'];
+    }
+    return '403.php';
+}
+
+function advisor_page_key_for_path(string $path): ?string
+{
+    $path = ltrim(str_replace('\\', '/', $path), '/');
+    foreach (advisor_page_catalog() as $key => $p) {
+        $paths = array_merge([$p['path']], $p['aliases'] ?? []);
+        foreach ($paths as $candidate) {
+            if ($path === ltrim($candidate, '/')) return $key;
+        }
+    }
+    return null;
+}
+
+function require_advisor_page_access(): void
+{
+    $u = current_user();
+    if (!$u || ($u['role'] ?? '') !== 'advisor') return;
+    $script = $_SERVER['SCRIPT_NAME'] ?? '';
+    $pos = strpos($script, '/admin/');
+    if ($pos === false) return;
+    $path = ltrim(substr($script, $pos + 1), '/');
+    $key = advisor_page_key_for_path($path);
+    if ($key && !advisor_can_access_page((int)$u['id'], $key)) {
+        http_response_code(403);
+        require __DIR__ . '/../403.php';
+        exit;
+    }
+}
+
 function login_user(array $user, bool $remember = false): void
 {
     boot_session();
@@ -124,6 +228,7 @@ function require_role(string ...$roles): void
     if ($r === 'student' && (current_user()['status'] ?? '') === 'pending') {
         redirect('auth/pending.php');
     }
+    require_advisor_page_access();
 }
 
 function is_chief_advisor(?array $user = null): bool
