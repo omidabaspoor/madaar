@@ -4,7 +4,7 @@
 const R=window.MADAR_ROOM||{}, CSRF=window.MADAR?.csrf||document.querySelector('meta[name="csrf-token"]')?.content||'';
 const $=(s,root=document)=>root.querySelector(s), $$=(s,root=document)=>Array.from(root.querySelectorAll(s));
 const api=(action,body={})=>fetch(`${R.apiBase}/online_room.php?action=${encodeURIComponent(action)}`,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF},body:JSON.stringify(body)}).then(r=>r.json());
-let jitsi=null,p2p=null,provider='none',chatLast=0,chatTimer=null,handTimer=null,reactionTimer=null,permTimer=null,permLast=0,wb=null,pdfDoc=null,pdfPage=1,startedAt=Date.now();
+let jitsi=null,p2p=null,provider='none',chatLast=0,chatTimer=null,handTimer=null,reactionTimer=null,permTimer=null,permLast=0,seenPermReq=new Set(),wb=null,pdfDoc=null,pdfPage=1,pdfZoom=1,startedAt=Date.now();
 const EMO={clap:'👏',heart:'❤️',thumbs:'👍',fire:'🔥',star:'⭐',laugh:'😂',wow:'😮',sad:'😢'};
 function toast(msg,ms=3800){const d=document.createElement('div');d.className='or-toast';d.textContent=msg;document.body.appendChild(d);setTimeout(()=>{d.style.opacity='0';d.style.transform='translateX(20px)';setTimeout(()=>d.remove(),250)},ms)}
 function showRoom(){const l=$('#or-loading'),r=$('#or-room'); if(l) l.style.display='none'; if(r) r.style.display='grid'}
@@ -12,11 +12,25 @@ function setBtn(id,on,offClass=true){$$(`[id="${id}"]`).forEach(b=>{b.classList.
 function bindAll(id,fn){$$(`[id="${id}"]`).forEach(el=>el.addEventListener('click',fn));}
 function parseDomain(url){try{return new URL(url).hostname}catch(e){return 'meet.jit.si'}}
 function loadScript(src,timeout=8500){return new Promise((res,rej)=>{if(window.JitsiMeetExternalAPI)return res();const s=document.createElement('script');let done=false;const t=setTimeout(()=>{if(!done){done=true;s.remove();rej(new Error('timeout'))}},timeout);s.src=src;s.async=true;s.onload=()=>{if(!done){done=true;clearTimeout(t);res()}};s.onerror=()=>{if(!done){done=true;clearTimeout(t);rej(new Error('load failed'))}};document.head.appendChild(s);});}
+async function connectMedia(){
+  if(!R.jitsiDisabled) await startJitsi().catch(async e=>{console.warn(e);toast('کلاس با مسیر داخلی مَدار آماده شد.'); await startP2P();}); else await startP2P();
+}
+async function waitForLiveThenConnect(){
+  $('#jitsi-host').innerHTML='<div class="or-waiting"><div class="or-waiting-card"><h2>کلاس هنوز شروع نشده است</h2><p>پس از شروع کلاس توسط مشاور، اتصال شما به‌صورت خودکار برقرار می‌شود.</p><p style="font-size:.8rem;color:#90a199">این صفحه را باز نگه دارید.</p></div></div>';
+  showRoom();
+  const timer=setInterval(async()=>{
+    const st=await api('session_state',{session_id:R.sessionId}).catch(()=>null);
+    if(st?.ok && st.status==='live'){
+      clearInterval(timer); R.status='live'; Object.assign(R.permissions,st.permissions||{}); applyRoomLiveState(); toast('کلاس شروع شد. در حال اتصال...'); await connectMedia(); showRoom();
+    }
+  },2000);
+}
 async function start(){
   document.documentElement.classList.add('online-room-ready');
-  bindUi(); initChat(); initWhiteboard(); startTimers();
-  if(R.isHost && R.status==='scheduled') await api('start_session',{session_id:R.sessionId}).catch(()=>{});
-  if(!R.jitsiDisabled) await startJitsi().catch(async e=>{console.warn(e);toast('کلاس با مسیر داخلی مَدار آماده شد.'); await startP2P();}); else await startP2P();
+  bindUi(); initChat(); initWhiteboard(); startTimers(); applyRoomLiveState();
+  if(R.isHost && R.status==='scheduled') { await api('start_session',{session_id:R.sessionId}).catch(()=>{}); R.status='live'; applyRoomLiveState(); }
+  if(!R.isHost && R.status==='scheduled') { await waitForLiveThenConnect(); return; }
+  await connectMedia();
   showRoom();
 }
 async function startJitsi(){
@@ -44,6 +58,14 @@ function bindUi(){
   bindAll('or-screen-btn',async()=>{ if(!R.permissions.screen&&!R.isHost) return requestPermission('screen','اشتراک صفحه'); if(provider==='jitsi'){jitsi?.executeCommand('toggleShareScreen');} else if(p2p){setBtn('or-screen-btn',await p2p.toggleScreen(),false);} });
   bindAll('or-board-btn',()=>toggleBoard()); bindAll('or-settings-btn',()=>openSettings()); $('#or-settings-close')?.addEventListener('click',()=>closeSettings()); bindAll('or-chat-btn',()=>openSide('chat')); bindAll('or-people-btn',()=>openSide('people'));
   bindAll('or-side-toggle',()=>{ $('#or-side')?.classList.toggle('is-hidden'); $('#or-room')?.classList.toggle('side-collapsed'); });
+  document.addEventListener('click', async (e)=>{
+    const b=e.target.closest('[data-force-command]'); if(!b || !R.isHost) return;
+    const command=b.dataset.forceCommand, target_user_id=parseInt(b.dataset.forceUser||'0',10);
+    if(!target_user_id) return;
+    const labels={mic_off:'میکروفون دانش‌آموز بسته شد.',cam_off:'دوربین دانش‌آموز بسته شد.',kick:'دانش‌آموز از کلاس خارج شد.'};
+    const r=await fetch(`${R.apiBase}/online_p2p.php?action=command&room_id=${R.sessionId}`,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({room_id:R.sessionId,target_user_id,command})}).then(x=>x.json()).catch(()=>null);
+    toast(r?.ok ? (labels[command]||'دستور ارسال شد.') : 'ارسال دستور انجام نشد.');
+  });
   bindAll('or-end-btn',leaveRoom);
   bindAll('or-hand-btn',async()=>{const r=await api('hand_toggle',{session_id:R.sessionId}).catch(()=>null); if(r?.ok){setBtn('or-hand-btn',r.raised,false);toast(r.raised?'دست شما بالا رفت.':'دست شما پایین آمد.');} else toast(r?.error||'امکان ثبت دست وجود ندارد.');});
   bindAll('or-react-btn',()=>$('#or-quick-react')?.classList.toggle('active'));
@@ -52,7 +74,21 @@ function bindUi(){
   $('.wb-exit')?.addEventListener('click',()=>toggleBoard(false));
 }
 function openSide(tab){$('#or-side')?.classList.remove('is-hidden');$('#or-room')?.classList.remove('side-collapsed');$$('.or-side-tab').forEach(x=>x.classList.toggle('active',x.dataset.tab===tab));$$('.or-tab-content').forEach(c=>c.style.display=c.dataset.tabContent===tab?(tab==='chat'||tab==='people'?'flex':'block'):'none');}
-async function leaveRoom(){ if(R.isHost && confirm('جلسه برای همه پایان داده شود؟')) await api('end_session',{session_id:R.sessionId}).catch(()=>{}); try{jitsi?.dispose()}catch(e){} await p2p?.leave().catch(()=>{}); location.href=(R.userRole==='student'?'student/online_sessions.php':'admin/online_sessions.php'); }
+function applyRoomLiveState(){
+  const live = R.status === 'live';
+  const chatEnabled = live && !!R.permissions.chat;
+  const inp=$('#or-chat-input'), btn=$('#or-chat-send');
+  if(inp&&btn){ inp.disabled=!chatEnabled; btn.disabled=!chatEnabled; inp.placeholder=chatEnabled?'پیام آموزشی بنویسید...':(live?'چت با اجازه مشاور فعال می‌شود':'چت پس از شروع کلاس فعال می‌شود'); }
+}
+async function leaveRoom(){
+  if(R.isHost){
+    const endForAll = confirm('برای همه پایان داده شود؟\n\nتأیید = پایان جلسه برای همه\nلغو = فقط خروج شما و باقی ماندن جلسه');
+    if(endForAll) await api('end_session',{session_id:R.sessionId}).catch(()=>{});
+  }
+  try{jitsi?.dispose()}catch(e){}
+  await p2p?.leave().catch(()=>{});
+  location.href=(R.userRole==='student'?'student/online_sessions.php':'admin/online_sessions.php');
+}
 function startTimers(){setInterval(()=>{const s=Math.floor((Date.now()-startedAt)/1000),m=Math.floor(s/60),hh=Math.floor(m/60); $('#or-timer-text')&&( $('#or-timer-text').textContent=(hh?String(hh).padStart(2,'0')+':':'')+String(m%60).padStart(2,'0')+':'+String(s%60).padStart(2,'0'));},1000);}
 function initChat(){const input=$('#or-chat-input'),send=$('#or-chat-send'); const sendFn=async()=>{const msg=input.value.trim(); if(!msg)return; input.value=''; const r=await api('chat_send',{session_id:R.sessionId,message:msg}); if(!r.ok) toast(r.error||'ارسال پیام ناموفق بود'); else pollChat();}; send?.addEventListener('click',sendFn); input?.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendFn();}}); pollChat(); chatTimer=setInterval(pollChat,2200); if(R.isHost){pollHands();handTimer=setInterval(pollHands,2500);} pollReactions(); reactionTimer=setInterval(pollReactions,2600); initPermissions();}
 async function pollChat(){const r=await api('chat_list',{session_id:R.sessionId,after_id:chatLast}).catch(()=>null); if(!r?.ok)return; for(const m of r.messages||[]) addMsg(m);}
@@ -82,6 +118,7 @@ async function saveClassPermissions(){
 async function pollPermissionRequests(){
   const box=$('#or-permission-requests'); if(!box)return; const r=await api('permission_list',{session_id:R.sessionId}).catch(()=>null); if(!r?.ok)return;
   const arr=r.requests||[]; if(!arr.length){box.innerHTML='<div style="color:#90a199;font-size:.82rem;padding:10px">درخواست فعالی وجود ندارد.</div>';return;}
+  arr.forEach(x=>{ if(!seenPermReq.has(String(x.id))){ seenPermReq.add(String(x.id)); toast(`${x.user_name} درخواست ${permLabel(x.permission_type)} دارد.`); $('#or-settings-modal')?.classList.add('active'); } });
   box.innerHTML=arr.map(x=>`<div class="or-request" data-id="${x.id}"><div><div class="name">${esc(x.user_name)}</div><div class="type">درخواست ${permLabel(x.permission_type)}</div></div><div class="or-request-actions"><button class="or-mini-btn ok" data-dec="approved">اجازه</button><button class="or-mini-btn no" data-dec="denied">رد</button></div></div>`).join('');
   box.querySelectorAll('button[data-dec]').forEach(b=>b.onclick=async()=>{const id=b.closest('.or-request').dataset.id; await api('permission_decide',{session_id:R.sessionId,request_id:id,decision:b.dataset.dec}); pollPermissionRequests(); toast(b.dataset.dec==='approved'?'دسترسی داده شد.':'درخواست رد شد.');});
 }
@@ -89,7 +126,7 @@ async function pollPermissionRequests(){
 async function syncClassPermissions(){
   const r=await api('permissions_state',{session_id:R.sessionId}).catch(()=>null); if(!r?.ok||!r.permissions)return;
   Object.assign(R.permissions,r.permissions);
-  const inp=$('#or-chat-input'), btn=$('#or-chat-send'); if(inp&&btn){ const enabled=!!R.permissions.chat; inp.disabled=!enabled; btn.disabled=!enabled; if(!enabled) inp.placeholder='چت با اجازه مشاور فعال می‌شود'; else inp.placeholder='پیام آموزشی بنویسید...'; }
+  const inp=$('#or-chat-input'), btn=$('#or-chat-send'); applyRoomLiveState();
 }
 
 async function pollPermissionStatus(){
@@ -97,7 +134,11 @@ async function pollPermissionStatus(){
   for(const x of r.requests||[]){permLast=Math.max(permLast,+x.id); if(x.status==='approved'){R.permissions[x.permission_type]=true; toast(`مشاور اجازه ${permLabel(x.permission_type)} را داد.`);} else toast(`درخواست ${permLabel(x.permission_type)} رد شد.`);}
 }
 
-function initWhiteboard(){const canvas=$('#wb-canvas'); if(!canvas)return; const ctx=canvas.getContext('2d'); wb={tool:'pen',color:'#000',size:4,drawing:false,last:null,dirty:false,version:0, resize(){const r=canvas.parentElement.getBoundingClientRect(),img=canvas.toDataURL(); canvas.width=Math.max(300,r.width*devicePixelRatio); canvas.height=Math.max(200,r.height*devicePixelRatio); ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0); ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height); const im=new Image(); im.onload=()=>ctx.drawImage(im,0,0,r.width,r.height); im.src=img;}}; const pos=e=>{const r=canvas.getBoundingClientRect(),p=e.touches?e.touches[0]:e;return{x:p.clientX-r.left,y:p.clientY-r.top}}; const down=e=>{e.preventDefault();wb.drawing=true;wb.start=wb.last=pos(e)}; const move=e=>{if(!wb.drawing)return;e.preventDefault();const p=pos(e);ctx.lineCap='round';ctx.lineJoin='round';ctx.lineWidth=wb.size;ctx.strokeStyle=wb.tool==='eraser'?'#fff':wb.color;if(['pen','eraser'].includes(wb.tool)){ctx.beginPath();ctx.moveTo(wb.last.x,wb.last.y);ctx.lineTo(p.x,p.y);ctx.stroke();wb.last=p;wb.dirty=true;}}; const up=e=>{if(!wb.drawing)return;const p=pos(e.changedTouches?e.changedTouches[0]:e); if(['line','rect','circle'].includes(wb.tool)){ctx.strokeStyle=wb.color;ctx.lineWidth=wb.size;ctx.beginPath(); if(wb.tool==='line'){ctx.moveTo(wb.start.x,wb.start.y);ctx.lineTo(p.x,p.y);} if(wb.tool==='rect'){ctx.rect(wb.start.x,wb.start.y,p.x-wb.start.x,p.y-wb.start.y);} if(wb.tool==='circle'){ctx.ellipse((wb.start.x+p.x)/2,(wb.start.y+p.y)/2,Math.abs(p.x-wb.start.x)/2,Math.abs(p.y-wb.start.y)/2,0,0,Math.PI*2);} ctx.stroke();wb.dirty=true;} wb.drawing=false;}; ['mousedown','touchstart'].forEach(x=>canvas.addEventListener(x,down,{passive:false})); ['mousemove','touchmove'].forEach(x=>canvas.addEventListener(x,move,{passive:false})); ['mouseup','mouseleave','touchend'].forEach(x=>canvas.addEventListener(x,up)); $$('.wb-tool[data-tool]').forEach(b=>b.onclick=()=>{$$('.wb-tool[data-tool]').forEach(x=>x.classList.remove('active'));b.classList.add('active');wb.tool=b.dataset.tool;}); $('.wb-tool[data-tool="pen"]')?.classList.add('active'); $$('.wb-color').forEach(c=>c.onclick=()=>{$$('.wb-color').forEach(x=>x.classList.remove('active'));c.classList.add('active');wb.color=c.dataset.color;}); $('#wb-size').oninput=e=>wb.size=+e.target.value; $('[data-clear]')?.addEventListener('click',()=>{if(confirm('تخته پاک شود؟')){ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);wb.dirty=true;}}); $('#wb-pdf-btn')?.addEventListener('click',()=>$('#wb-pdf-input')?.click()); $('#wb-pdf-input')?.addEventListener('change',loadPdfToBoard); $('#wb-pdf-prev')?.addEventListener('click',()=>renderPdfPage(pdfPage-1)); $('#wb-pdf-next')?.addEventListener('click',()=>renderPdfPage(pdfPage+1)); $('#wb-download')?.addEventListener('click',downloadBoardPdf); window.addEventListener('resize',()=>wb.resize()); setTimeout(()=>wb.resize(),400); setInterval(saveBoard,1800); setInterval(loadBoard,2600); loadBoard();}
+function initWhiteboard(){const canvas=$('#wb-canvas'); if(!canvas)return; const ctx=canvas.getContext('2d'); wb={tool:'pen',color:'#000',size:4,drawing:false,last:null,dirty:false,version:0, resize(){const r=canvas.parentElement.getBoundingClientRect(),img=canvas.toDataURL(); canvas.width=Math.max(300,r.width*devicePixelRatio); canvas.height=Math.max(200,r.height*devicePixelRatio); ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0); ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height); const im=new Image(); im.onload=()=>ctx.drawImage(im,0,0,r.width,r.height); im.src=img;}}; const pos=e=>{const r=canvas.getBoundingClientRect(),p=e.touches?e.touches[0]:e;return{x:p.clientX-r.left,y:p.clientY-r.top}}; const down=e=>{e.preventDefault();wb.drawing=true;wb.start=wb.last=pos(e)}; const move=e=>{if(!wb.drawing)return;e.preventDefault();const p=pos(e);ctx.lineCap='round';ctx.lineJoin='round';ctx.lineWidth=wb.size;ctx.strokeStyle=wb.tool==='eraser'?'#fff':wb.color;if(['pen','eraser'].includes(wb.tool)){ctx.beginPath();ctx.moveTo(wb.last.x,wb.last.y);ctx.lineTo(p.x,p.y);ctx.stroke();wb.last=p;wb.dirty=true;}}; const up=e=>{if(!wb.drawing)return;const p=pos(e.changedTouches?e.changedTouches[0]:e); if(['line','rect','circle'].includes(wb.tool)){ctx.strokeStyle=wb.color;ctx.lineWidth=wb.size;ctx.beginPath(); if(wb.tool==='line'){ctx.moveTo(wb.start.x,wb.start.y);ctx.lineTo(p.x,p.y);} if(wb.tool==='rect'){ctx.rect(wb.start.x,wb.start.y,p.x-wb.start.x,p.y-wb.start.y);} if(wb.tool==='circle'){ctx.ellipse((wb.start.x+p.x)/2,(wb.start.y+p.y)/2,Math.abs(p.x-wb.start.x)/2,Math.abs(p.y-wb.start.y)/2,0,0,Math.PI*2);} ctx.stroke();wb.dirty=true;} wb.drawing=false;}; ['mousedown','touchstart'].forEach(x=>canvas.addEventListener(x,down,{passive:false})); ['mousemove','touchmove'].forEach(x=>canvas.addEventListener(x,move,{passive:false})); ['mouseup','mouseleave','touchend'].forEach(x=>canvas.addEventListener(x,up)); $$('.wb-tool[data-tool]').forEach(b=>b.onclick=()=>{$$('.wb-tool[data-tool]').forEach(x=>x.classList.remove('active'));b.classList.add('active');wb.tool=b.dataset.tool;}); $('.wb-tool[data-tool="pen"]')?.classList.add('active'); $$('.wb-color').forEach(c=>c.onclick=()=>{$$('.wb-color').forEach(x=>x.classList.remove('active'));c.classList.add('active');wb.color=c.dataset.color;}); $('#wb-size').oninput=e=>wb.size=+e.target.value; $('[data-clear]')?.addEventListener('click',()=>{if(confirm('تخته پاک شود؟')){ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);wb.dirty=true;}}); $('#wb-pdf-btn')?.addEventListener('click',()=>$('#wb-pdf-input')?.click()); $('#wb-pdf-input')?.addEventListener('change',loadPdfToBoard); $('#wb-pdf-prev')?.addEventListener('click',()=>renderPdfPage(pdfPage-1)); $('#wb-pdf-next')?.addEventListener('click',()=>renderPdfPage(pdfPage+1));
+  $('#wb-pdf-zoom-in')?.addEventListener('click',()=>{pdfZoom=Math.min(2.6,pdfZoom+.15);renderPdfPage(pdfPage);});
+  $('#wb-pdf-zoom-out')?.addEventListener('click',()=>{pdfZoom=Math.max(.55,pdfZoom-.15);renderPdfPage(pdfPage);});
+  $('#wb-pdf-reset')?.addEventListener('click',()=>{pdfZoom=1;renderPdfPage(pdfPage);});
+  $('#wb-download')?.addEventListener('click',downloadBoardPdf); window.addEventListener('resize',()=>wb.resize()); setTimeout(()=>wb.resize(),400); setInterval(saveBoard,1800); setInterval(loadBoard,2600); loadBoard();}
 
 async function loadPdfToBoard(e){
   const file=e.target.files?.[0]; if(!file)return; if(!R.isHost){toast('افزودن فایل فقط برای مشاور فعال است.');return;}
@@ -105,15 +146,15 @@ async function loadPdfToBoard(e){
     toast('در حال آماده‌سازی فایل درس...');
     const pdfjs=await import((R.assetBase||'assets/')+'js/vendor/pdf.min.mjs');
     pdfjs.GlobalWorkerOptions.workerSrc=(R.assetBase||'assets/')+'js/vendor/pdf.worker.min.mjs';
-    const buf=await file.arrayBuffer(); pdfDoc=await pdfjs.getDocument({data:buf}).promise; pdfPage=1;
-    ['#wb-pdf-prev','#wb-pdf-next','#wb-pdf-page'].forEach(sel=>$(sel)&&($(sel).style.display=''));
+    const buf=await file.arrayBuffer(); pdfDoc=await pdfjs.getDocument({data:buf,useSystemFonts:true,disableFontFace:false,stopAtErrors:false,isEvalSupported:false}).promise; pdfPage=1; pdfZoom=1;
+    ['#wb-pdf-prev','#wb-pdf-next','#wb-pdf-page','#wb-pdf-zoom-in','#wb-pdf-zoom-out','#wb-pdf-reset'].forEach(sel=>$(sel)&&($(sel).style.display=''));
     await renderPdfPage(1); toast('PDF روی تخته قرار گرفت.');
   }catch(err){console.error(err);toast('فایل PDF خوانده نشد.');}
 }
 async function renderPdfPage(n){
   if(!pdfDoc||!wb)return; n=Math.max(1,Math.min(pdfDoc.numPages,n)); pdfPage=n; const page=await pdfDoc.getPage(n);
   const canvas=$('#wb-canvas'), ctx=canvas.getContext('2d'), host=canvas.parentElement.getBoundingClientRect();
-  const vp0=page.getViewport({scale:1}); const scale=Math.min(host.width/vp0.width, host.height/vp0.height)*devicePixelRatio; const vp=page.getViewport({scale});
+  const vp0=page.getViewport({scale:1}); const scale=Math.min(host.width/vp0.width, host.height/vp0.height)*devicePixelRatio*pdfZoom; const vp=page.getViewport({scale});
   const off=document.createElement('canvas'); off.width=vp.width; off.height=vp.height; await page.render({canvasContext:off.getContext('2d'),viewport:vp}).promise;
   ctx.fillStyle='#f3f4f6'; ctx.fillRect(0,0,canvas.width,canvas.height);
   const dw=off.width/devicePixelRatio, dh=off.height/devicePixelRatio, x=(canvas.clientWidth-dw)/2, y=(canvas.clientHeight-dh)/2;

@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1754" height="1240" viewBox="0 0 1754 1240">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fffdf5"/>
+      <stop offset="0.52" stop-color="#f7fbf4"/>
+      <stop offset="1" stop-color="#fff7e7"/>
+    </linearGradient>
+    <radialGradient id="r1" cx="88%" cy="8%" r="55%">
+      <stop offset="0" stop-color="#cbac80" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#cbac80" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="r2" cx="8%" cy="92%" r="60%">
+      <stop offset="0" stop-color="#6b8872" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#6b8872" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="top" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#172a21"/>
+      <stop offset="0.55" stop-color="#243a30"/>
+      <stop offset="1" stop-color="#b2945f"/>
+    </linearGradient>
+    <pattern id="dots" width="34" height="34" patternUnits="userSpaceOnUse">
+      <circle cx="3" cy="3" r="1.3" fill="#172a21" opacity="0.08"/>
+    </pattern>
+  </defs>
+  <rect width="1754" height="1240" fill="url(#bg)"/>
+  <rect width="1754" height="1240" fill="url(#r1)"/>
+  <rect width="1754" height="1240" fill="url(#r2)"/>
+  <rect width="1754" height="1240" fill="url(#dots)"/>
+  <path d="M0 0H1754V182C1420 138 1110 188 840 138C515 79 254 118 0 73V0Z" fill="url(#top)"/>
+  <path d="M0 1120C245 1073 447 1135 704 1096C979 1054 1250 1052 1754 1118V1240H0Z" fill="#172a21" opacity="0.06"/>
+  <circle cx="1590" cy="106" r="76" fill="#ffffff" opacity="0.08"/>
+  <circle cx="1490" cy="82" r="34" fill="#ffffff" opacity="0.08"/>
+  <path d="M112 1034c176-78 364-78 562 0" fill="none" stroke="#6b8872" stroke-width="3" opacity="0.13"/>
+  <path d="M1172 1068c130-48 258-48 384 0" fill="none" stroke="#b2945f" stroke-width="3" opacity="0.18"/>
+  <text x="112" y="1135" font-family="Arial, sans-serif" font-size="82" font-weight="700" fill="#172a21" opacity="0.035">MADAAR STUDY OS</text>
+</svg>

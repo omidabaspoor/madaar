@@ -1387,3 +1387,490 @@ input[type="text"], input[type="number"], select, textarea{
 .cancelled-question .eq-clear,
 .cancelled-question .q-clear-btn{ display:none !important; }
 
+
+/* =================================================================
+   EXAM V3 — Professional booklet/PDF viewer
+   - More space for sheet
+   - Floating non-intrusive tools
+   - Persian-compatible PDF fallback
+   - Pan / pinch / rotate for images and PDF
+   ================================================================= */
+.booklet-viewer-panel{
+  position:relative !important;
+  isolation:isolate;
+}
+
+/* Give the booklet the full panel height; toolbar floats over it instead of stealing space. */
+.booklet-viewer-panel .booklet-scroll-area{
+  flex:1 1 auto !important;
+  height:100% !important;
+  padding:0 !important;
+}
+
+.booklet-toolbar{
+  position:absolute !important;
+  top:10px;
+  right:10px;
+  left:10px;
+  z-index:12;
+  width:auto;
+  margin:0 !important;
+  padding:7px 8px !important;
+  border:1px solid rgba(255,255,255,.08) !important;
+  border-radius:16px !important;
+  background:rgba(8,13,10,.58) !important;
+  -webkit-backdrop-filter:blur(14px);
+  backdrop-filter:blur(14px);
+  box-shadow:0 10px 34px rgba(0,0,0,.34);
+  transition:opacity .18s var(--ease), transform .18s var(--ease), visibility .18s;
+}
+.booklet-toolbar:hover,
+.booklet-toolbar:focus-within{ opacity:1; }
+.booklet-toolbar > div,
+.booklet-toolbar .booklet-pages-nav,
+#imageZoomControls,
+#pdfPageControls,
+#pdfCompatBtn{
+  background:rgba(12,21,18,.78) !important;
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:12px !important;
+}
+#bookletTitleBadge{
+  max-width:min(320px, 38vw);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+#pdfCompatBtn{
+  padding:0 10px !important;
+  min-height:32px;
+}
+.booklet-tools-toggle{
+  position:absolute;
+  top:12px;
+  right:12px;
+  z-index:13;
+  min-width:54px;
+  height:34px;
+  border:1px solid rgba(203,172,128,.36);
+  border-radius:999px;
+  background:rgba(12,21,18,.78);
+  color:var(--gold-light);
+  -webkit-backdrop-filter:blur(12px);
+  backdrop-filter:blur(12px);
+  font:inherit;
+  font-size:.78rem;
+  font-weight:1000;
+  cursor:pointer;
+  box-shadow:0 8px 28px rgba(0,0,0,.32);
+  display:none;
+}
+.booklet-tools-collapsed .booklet-toolbar{
+  opacity:0;
+  visibility:hidden;
+  pointer-events:none;
+  transform:translateY(-8px) scale(.985);
+}
+.booklet-tools-collapsed .booklet-tools-toggle{ display:inline-flex; align-items:center; justify-content:center; }
+.booklet-viewer-panel:not(.booklet-tools-collapsed) .booklet-tools-toggle{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  opacity:.70;
+  transform:translateY(44px);
+}
+.booklet-viewer-panel:not(.booklet-tools-collapsed) .booklet-tools-toggle:hover{ opacity:1; }
+
+/* Canvas/native PDF are centered and draggable by outer controller. */
+.booklet-native-pdf{
+  position:absolute;
+  left:50%;
+  top:50%;
+  width:min(100%, 1100px);
+  height:min(100%, 1500px);
+  min-width:72%;
+  min-height:72%;
+  border:0;
+  border-radius:10px;
+  background:#fff;
+  box-shadow:0 14px 42px rgba(0,0,0,.72);
+  transform:translate(-50%,-50%);
+  transform-origin:center center;
+}
+.booklet-native-pdf.hidden{ display:none !important; }
+#bookletPdfCanvas.hidden{ display:none !important; }
+
+.booklet-file-fallback{
+  position:absolute;
+  inset:50% auto auto 50%;
+  transform:translate(-50%,-50%);
+  z-index:5;
+  width:min(420px, calc(100% - 32px));
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:12px;
+  padding:22px;
+  border-radius:20px;
+  background:rgba(6,10,8,.86);
+  border:1px solid rgba(203,172,128,.30);
+  color:var(--text-2);
+  text-align:center;
+  -webkit-backdrop-filter:blur(12px);
+  backdrop-filter:blur(12px);
+  box-shadow:0 18px 60px rgba(0,0,0,.44);
+}
+.booklet-file-fallback.hidden{ display:none !important; }
+.booklet-file-fallback b{ color:var(--text-1); font-weight:1000; }
+.booklet-file-fallback small{ color:var(--text-3); font-weight:800; line-height:1.8; }
+
+/* More room on desktop: booklet dominates, answer sheet stays usable. */
+.exam-samurai-layout{
+  max-width:none !important;
+  width:100% !important;
+  grid-template-columns:minmax(0,1fr) minmax(300px,360px) !important;
+  padding:10px !important;
+  gap:10px !important;
+  height:calc(100dvh - 64px) !important;
+}
+@media(min-width:1500px){
+  .exam-samurai-layout{ grid-template-columns:minmax(0,1fr) 390px !important; }
+}
+@media(min-width:1800px){
+  .exam-samurai-layout{ grid-template-columns:minmax(0,1fr) 420px !important; }
+}
+.bubble-row-item{ gap:9px !important; }
+.bubble-rows-container{ padding:10px !important; gap:8px !important; }
+.bubble-sheet-head{ padding:10px 14px !important; }
+.bubble-sheet-footer{ padding:10px 14px !important; }
+
+@media(max-width:980px){
+  .exam-samurai-layout{
+    height:auto !important;
+    min-height:calc(100dvh - 56px) !important;
+    padding:8px !important;
+    gap:8px !important;
+  }
+  .booklet-toolbar{ top:8px; right:8px; left:8px; }
+  .booklet-viewer-panel{ min-height:390px !important; }
+}
+
+@media(max-width:760px){
+  body:has(.exam-samurai-layout), body.samurai-exam-mobile{ overflow:hidden !important; }
+  .exam-env{ height:100dvh !important; min-height:100dvh !important; overflow:hidden !important; }
+  .exam-bar{
+    min-height:52px !important;
+    padding:6px 8px !important;
+  }
+  .mobile-exam-switch{
+    position:relative !important;
+    top:auto !important;
+    padding:6px 8px !important;
+  }
+  .mobile-exam-switch button{ min-height:38px !important; font-size:.80rem !important; }
+  .exam-samurai-layout{
+    height:calc(100dvh - 52px - 51px) !important;
+    min-height:0 !important;
+    padding:6px !important;
+    overflow:hidden !important;
+  }
+  .booklet-viewer-panel,
+  .bubble-sheet-panel{
+    height:100% !important;
+    min-height:0 !important;
+    border-radius:16px !important;
+  }
+  .booklet-toolbar{
+    top:6px;
+    right:6px;
+    left:6px;
+    padding:6px !important;
+    gap:5px !important;
+    max-height:42dvh;
+    overflow:auto;
+  }
+  .booklet-toolbar > div:first-child{ flex:1 1 100%; min-width:0; }
+  #bookletTitleBadge{ max-width:100%; font-size:.70rem !important; }
+  #imageZoomControls,
+  #pdfPageControls,
+  .booklet-pages-nav{
+    flex:1 1 auto !important;
+    min-width:max-content;
+    width:auto !important;
+  }
+  #pdfCompatBtn{ flex:1 1 100%; font-size:.76rem; }
+  .booklet-tools-toggle{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    top:8px;
+    right:8px;
+  }
+  .booklet-viewer-panel:not(.booklet-tools-collapsed) .booklet-tools-toggle{ transform:translateY(40px); }
+  .booklet-native-pdf{
+    width:100%;
+    height:100%;
+    min-width:100%;
+    min-height:100%;
+    border-radius:8px;
+  }
+  .booklet-pdf-fallback{
+    left:10px !important;
+    right:10px !important;
+    bottom:10px !important;
+    padding:14px !important;
+  }
+}
+
+@media(max-width:420px){
+  .exam-samurai-layout{ height:calc(100dvh - 50px - 49px) !important; padding:5px !important; }
+  .booklet-toolbar{ max-height:48dvh; }
+  #zoomLevelText{ width:36px !important; }
+  #imageZoomControls .btn,
+  #pdfPageControls .btn{ width:26px !important; height:28px !important; }
+}
+
+/* =================================================================
+   EXAM V3.1 — Mobile PDF compatibility + clearer tools affordance
+   ================================================================= */
+.booklet-tools-toggle{
+  gap:6px;
+  padding:0 12px;
+  min-width:auto;
+  white-space:nowrap;
+}
+.booklet-tools-toggle svg{ flex:0 0 auto; }
+.booklet-viewer-panel:not(.booklet-tools-collapsed) .booklet-tools-toggle{
+  right:auto;
+  left:14px;
+  transform:none;
+  opacity:1;
+  background:rgba(217,116,116,.16);
+  border-color:rgba(217,116,116,.32);
+  color:#ffb0b0;
+}
+.booklet-tools-collapsed .booklet-tools-toggle{
+  background:rgba(12,21,18,.84);
+  border-color:rgba(203,172,128,.40);
+  color:var(--gold-light);
+}
+#pdfCompatBtn,
+#pdfCompatBtn span,
+.booklet-pages-nav button,
+.booklet-pages-nav button span{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:5px;
+}
+#imageZoomControls .btn,
+#pdfPageControls .btn{
+  display:inline-flex !important;
+  align-items:center;
+  justify-content:center;
+}
+
+/* Native/browser PDF mode: let the browser viewer receive touch/scroll events. */
+.booklet-scroll-area.native-pdf-mode{
+  touch-action:auto !important;
+  overflow:hidden !important;
+  cursor:default !important;
+  -webkit-overflow-scrolling:touch;
+}
+.booklet-pdf-canvas-wrap.native-mode{
+  overflow:hidden !important;
+  touch-action:auto !important;
+  -webkit-overflow-scrolling:touch;
+}
+.booklet-pdf-canvas-wrap.native-mode .booklet-native-pdf{
+  position:absolute !important;
+  inset:0 !important;
+  left:0 !important;
+  top:0 !important;
+  width:100% !important;
+  height:100% !important;
+  min-width:0 !important;
+  min-height:0 !important;
+  transform:none !important;
+  border-radius:0 !important;
+  box-shadow:none !important;
+  background:#fff;
+  overflow:auto;
+}
+.booklet-scroll-area.native-pdf-mode #bookletPdfCanvas{ display:none !important; }
+.booklet-scroll-area.native-pdf-mode #imageZoomControls{ display:none !important; }
+.booklet-scroll-area.native-pdf-mode #bookletHint{ display:none !important; }
+
+@media(max-width:760px){
+  .booklet-viewer-panel:not(.booklet-tools-collapsed) .booklet-tools-toggle{
+    top:8px;
+    left:8px;
+    right:auto;
+    height:32px;
+    font-size:.74rem;
+  }
+  .booklet-tools-collapsed .booklet-tools-toggle{
+    height:34px;
+    font-size:.76rem;
+  }
+  .booklet-toolbar{
+    padding-top:44px !important; /* جای دکمه «بستن ابزار» داخل پنل ابزار */
+  }
+  .booklet-tools-collapsed .booklet-toolbar{ padding-top:6px !important; }
+  #pdfCompatBtn{
+    min-height:34px;
+    gap:6px;
+  }
+  .booklet-pages-nav button span{
+    display:none;
+  }
+  .booklet-scroll-area.native-pdf-mode,
+  .booklet-pdf-canvas-wrap.native-mode{
+    overflow:hidden !important;
+  }
+  .booklet-pdf-canvas-wrap.native-mode .booklet-native-pdf{
+    width:100% !important;
+    height:100% !important;
+    -webkit-overflow-scrolling:touch;
+  }
+}
+
+/* =================================================================
+   EXAM V3.2 — Mobile header + native PDF scroll fix
+   ================================================================= */
+@media(max-width:760px){
+  .exam-bar{
+    display:flex !important;
+    flex-wrap:nowrap !important;
+    align-items:center !important;
+    justify-content:space-between !important;
+    min-height:48px !important;
+    padding:6px 7px !important;
+    gap:6px !important;
+  }
+  .exam-bar-info{
+    flex:1 1 auto !important;
+    min-width:0 !important;
+    width:auto !important;
+    display:flex !important;
+    flex-wrap:nowrap !important;
+    align-items:center !important;
+    gap:5px !important;
+  }
+  .exam-bar > .flex:last-child{
+    flex:0 0 auto !important;
+    width:auto !important;
+    display:flex !important;
+    flex-wrap:nowrap !important;
+    align-items:center !important;
+    justify-content:flex-end !important;
+    gap:5px !important;
+  }
+  .exam-bar-info > a,
+  .exam-bar-info > a[href*="exam_pdf"]{
+    display:inline-flex !important;
+    flex:0 0 auto !important;
+    min-height:32px !important;
+    height:32px !important;
+    padding:0 8px !important;
+    border-radius:10px !important;
+    font-size:.74rem !important;
+    line-height:1 !important;
+    white-space:nowrap !important;
+  }
+  .exam-bar-info > a svg{ width:14px; height:14px; }
+  .eb-title{
+    flex:1 1 auto !important;
+    min-width:34px !important;
+    max-width:none !important;
+    width:auto !important;
+    order:0 !important;
+    font-size:.78rem !important;
+    line-height:1.25 !important;
+    white-space:nowrap !important;
+    overflow:hidden !important;
+    text-overflow:ellipsis !important;
+  }
+  .eb-sub{ display:none !important; }
+  .exam-timer{
+    flex:0 0 auto !important;
+    min-height:32px !important;
+    height:32px !important;
+    padding:0 7px !important;
+    border-radius:10px !important;
+    font-size:.78rem !important;
+    gap:4px !important;
+    white-space:nowrap !important;
+  }
+  .exam-timer svg{ width:14px; height:14px; }
+  #replayExamTour{
+    flex:0 0 auto !important;
+    width:32px !important;
+    min-width:32px !important;
+    height:32px !important;
+    min-height:32px !important;
+    padding:0 !important;
+    border-radius:10px !important;
+    white-space:nowrap !important;
+  }
+  #replayExamTour span{ display:none !important; }
+  #replayExamTour svg{ width:15px; height:15px; }
+  #finishBtn{
+    flex:0 0 auto !important;
+    min-width:42px !important;
+    width:auto !important;
+    height:32px !important;
+    min-height:32px !important;
+    padding:0 10px !important;
+    border-radius:10px !important;
+    font-size:.78rem !important;
+    line-height:1 !important;
+    white-space:nowrap !important;
+    gap:4px !important;
+  }
+  #finishBtn span{ display:inline !important; white-space:nowrap !important; }
+  #finishBtn svg{ width:14px; height:14px; }
+
+  .mobile-exam-switch{ padding:5px 7px !important; }
+  .mobile-exam-switch button{ min-height:36px !important; }
+  .exam-samurai-layout{ height:calc(100dvh - 48px - 47px) !important; }
+
+  /* Browser/native PDF mode must scroll on mobile. */
+  .booklet-scroll-area.native-pdf-mode{
+    overflow-y:auto !important;
+    overflow-x:hidden !important;
+    touch-action:pan-y !important;
+    -webkit-overflow-scrolling:touch !important;
+  }
+  .booklet-pdf-canvas-wrap.native-mode{
+    position:absolute !important;
+    inset:0 !important;
+    overflow-y:auto !important;
+    overflow-x:hidden !important;
+    touch-action:pan-y !important;
+    -webkit-overflow-scrolling:touch !important;
+  }
+  .booklet-pdf-canvas-wrap.native-mode .booklet-native-pdf{
+    position:relative !important;
+    inset:auto !important;
+    left:auto !important;
+    top:auto !important;
+    display:block !important;
+    width:100% !important;
+    min-width:100% !important;
+    min-height:1400px !important;
+    border:0 !important;
+    transform:none !important;
+    border-radius:0 !important;
+  }
+}
+
+@media(max-width:390px){
+  .exam-bar{ gap:4px !important; padding-inline:5px !important; }
+  .exam-bar-info{ gap:4px !important; }
+  .exam-bar > .flex:last-child{ gap:4px !important; }
+  .exam-bar-info > a{ padding:0 6px !important; }
+  .eb-title{ display:none !important; }
+  #finishBtn{ padding:0 8px !important; min-width:38px !important; }
+  .exam-timer{ padding:0 6px !important; }
+}

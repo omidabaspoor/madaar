@@ -77,6 +77,20 @@ try {
         delivered_at DATETIME,
         INDEX idx_signals (room_id, to_peer, delivered_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    db()->exec("CREATE TABLE IF NOT EXISTS session_peer_commands (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        room_id INT NOT NULL,
+        target_user_id INT NOT NULL,
+        command VARCHAR(40) NOT NULL,
+        from_user_id INT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        delivered_at DATETIME,
+        INDEX idx_cmd_target (room_id, target_user_id, delivered_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    foreach (['mic_on TINYINT(1) DEFAULT 0','cam_on TINYINT(1) DEFAULT 0','screen_on TINYINT(1) DEFAULT 0'] as $def) {
+        $col = strtok($def, ' ');
+        try { db()->exec("ALTER TABLE session_peers ADD COLUMN $def"); } catch (Throwable $e) {}
+    }
 } catch (Throwable $e) {
     // ignore if already exists
 }
@@ -90,9 +104,12 @@ try {
         // امنیت: کلاینت حق ندارد خودش را میزبان معرفی کند. میزبان فقط مشاور مالک جلسه یا admin است.
         $isHost = ((int)($session['advisor_id'] ?? 0) === $me || $role === 'admin') ? 1 : 0;
 
-        db()->prepare('INSERT INTO session_peers (room_id, peer_id, user_id, user_name, is_host, last_poll) VALUES (?, ?, ?, ?, ?, NOW())
-            ON DUPLICATE KEY UPDATE last_poll=NOW(), user_name=VALUES(user_name), is_host=VALUES(is_host)')
-            ->execute([$roomId, $peerId, $me, $name, $isHost]);
+        $micOn = !empty($body['mic_on']) ? 1 : 0;
+        $camOn = !empty($body['cam_on']) ? 1 : 0;
+        $screenOn = !empty($body['screen_on']) ? 1 : 0;
+        db()->prepare('INSERT INTO session_peers (room_id, peer_id, user_id, user_name, is_host, mic_on, cam_on, screen_on, last_poll) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+            ON DUPLICATE KEY UPDATE last_poll=NOW(), user_name=VALUES(user_name), is_host=VALUES(is_host), mic_on=VALUES(mic_on), cam_on=VALUES(cam_on), screen_on=VALUES(screen_on)')
+            ->execute([$roomId, $peerId, $me, $name, $isHost, $micOn, $camOn, $screenOn]);
 
         if ($role === 'student') {
             db()->prepare('UPDATE session_participants SET joined_at=COALESCE(joined_at,NOW()), is_present=1 WHERE session_id=? AND student_id=?')
@@ -118,7 +135,7 @@ try {
             ->execute([$roomId]);
 
         // دریافت لیست peers (به‌جز خودم)
-        $peersStmt = db()->prepare('SELECT peer_id, user_name, is_host FROM session_peers
+        $peersStmt = db()->prepare('SELECT peer_id, user_id, user_name, is_host, mic_on, cam_on, screen_on FROM session_peers
             WHERE room_id=? AND peer_id != ? AND last_poll > DATE_SUB(NOW(), INTERVAL 30 SECOND)
             ORDER BY created_at ASC');
         $peersStmt->execute([$roomId, $myId]);
@@ -150,16 +167,50 @@ try {
                 ->execute($deliveredIds);
         }
 
+        $cmdStmt = db()->prepare('SELECT id, command, from_user_id FROM session_peer_commands WHERE room_id=? AND target_user_id=? AND delivered_at IS NULL ORDER BY id ASC LIMIT 20');
+        $cmdStmt->execute([$roomId, $me]);
+        $commands = $cmdStmt->fetchAll();
+        if ($commands) {
+            db()->prepare('UPDATE session_peer_commands SET delivered_at=NOW() WHERE room_id=? AND target_user_id=? AND delivered_at IS NULL')
+                ->execute([$roomId, $me]);
+        }
+
         echo json_encode([
             'ok' => true,
             'peers' => array_map(fn($p) => [
                 'peer_id' => $p['peer_id'],
+                'user_id' => (int)$p['user_id'],
                 'name' => $p['user_name'],
                 'is_host' => (int)$p['is_host'],
+                'mic_on' => (int)($p['mic_on'] ?? 0),
+                'cam_on' => (int)($p['cam_on'] ?? 0),
+                'screen_on' => (int)($p['screen_on'] ?? 0),
             ], $peers),
             'messages' => $messages,
+            'commands' => $commands ?: [],
         ]);
         exit;
+    }
+
+    case 'state': {
+        if ($myId === '') { echo json_encode(['ok'=>false,'error'=>'no_my_id']); exit; }
+        $mic = !empty($body['mic_on']) ? 1 : 0;
+        $cam = !empty($body['cam_on']) ? 1 : 0;
+        $screen = !empty($body['screen_on']) ? 1 : 0;
+        db()->prepare('UPDATE session_peers SET mic_on=?, cam_on=?, screen_on=?, last_poll=NOW() WHERE room_id=? AND peer_id=? AND user_id=?')
+            ->execute([$mic,$cam,$screen,$roomId,$myId,$me]);
+        echo json_encode(['ok'=>true]); exit;
+    }
+
+    case 'command': {
+        if ((int)($session['advisor_id'] ?? 0) !== $me && $role !== 'admin') { echo json_encode(['ok'=>false,'error'=>'no_access']); exit; }
+        $target = (int)($body['target_user_id'] ?? 0);
+        $cmd = (string)($body['command'] ?? '');
+        $allowed = ['mic_off','cam_off','screen_off','kick'];
+        if (!$target || !in_array($cmd, $allowed, true)) { echo json_encode(['ok'=>false,'error'=>'bad_command']); exit; }
+        db()->prepare('INSERT INTO session_peer_commands (room_id,target_user_id,command,from_user_id) VALUES (?,?,?,?)')
+            ->execute([$roomId,$target,$cmd,$me]);
+        echo json_encode(['ok'=>true]); exit;
     }
 
     case 'signal': {

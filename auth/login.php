@@ -5,7 +5,10 @@ require_once __DIR__ . '/../includes/log.php';
 boot_session();
 
 if (is_logged_in()) {
-    redirect(user_role() === 'student' ? 'student/dashboard.php' : 'admin/dashboard.php');
+    
+    $cu = current_user();
+    if (user_role() === 'student') redirect('student/dashboard.php');
+    redirect(($cu['role'] ?? '') === 'advisor' ? advisor_first_allowed_admin_path((int)$cu['id']) : 'admin/dashboard.php');
 }
 
 $err = '';
@@ -44,7 +47,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     login_user($u, $remember);
                     log_activity((int)$u['id'], 'user_login', 'user', (int)$u['id'], ['نقش' => $u['role'] === 'admin' ? 'مشاور ارشد' : ($u['role'] === 'advisor' ? 'مشاور تحصیلی' : 'دانش‌آموز')]);
                     if ($u['role'] === 'student' && $u['status'] === 'pending') redirect('auth/pending.php');
-                    redirect($u['role'] === 'student' ? 'student/dashboard.php' : 'admin/dashboard.php');
+                    
+                    if ($u['role'] === 'student') redirect('student/dashboard.php');
+                    redirect($u['role'] === 'advisor' ? advisor_first_allowed_admin_path((int)$u['id']) : 'admin/dashboard.php');
                 }
             } else {
                 $_SESSION['login_attempts']++;
@@ -102,7 +107,7 @@ page_head('ورود', '', ['auth.css']);
           <label for="username">نام کاربری</label>
           <div class="input-group">
             <span class="ig-icon"><?= icon('user',18) ?></span>
-            <input class="input" id="username" name="username" value="<?= e($old['username']) ?>" placeholder="مثلاً ali_sayyadi" autocomplete="username" required>
+            <input class="input" id="username" name="username" value="<?= e($old['username']) ?>" placeholder="مثلاً student_1404" autocomplete="username" required>
           </div>
         </div>
         <div class="field">

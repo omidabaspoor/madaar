@@ -29,6 +29,15 @@
   const pdfLoading = document.getElementById('pdfPageLoading');
   const pdfFallback = document.getElementById('bookletPdfFallback');
   const pdfRetry = document.getElementById('bookletPdfRetry');
+  const pdfCompatRetry = document.getElementById('bookletPdfCompatRetry');
+  const pdfOpenLink = document.getElementById('bookletPdfOpenLink');
+  const nativePdfFrame = document.getElementById('bookletNativePdf');
+  const pdfCompatBtn = document.getElementById('pdfCompatBtn');
+  const fileFallback = document.getElementById('bookletFileFallback');
+  const fileOpenLink = document.getElementById('bookletFileOpenLink');
+  const viewerPanel = document.getElementById('bookletViewerPanel');
+  const toolsToggle = document.getElementById('bookletToolsToggle');
+  const bookletToolbar = document.getElementById('bookletToolbar');
   const zoomControls = document.getElementById('imageZoomControls');
   const bookletHint = document.getElementById('bookletHint');
   const pdfPageControls = document.getElementById('pdfPageControls');
@@ -37,6 +46,8 @@
   const pdfPageText = document.getElementById('pdfPageText');
   let fitZoom = 1;
   let currentZoom = 1;
+  let rotation = 0;
+  let pdfRenderMode = 'canvas'; // canvas | native
   let panX = 0, panY = 0;
   const pointers = new Map();
   let dragStart = null;
@@ -54,21 +65,27 @@
   function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
   function viewerRect(){ return bArea?.getBoundingClientRect() || {width:0,height:0,left:0,top:0}; }
   function imgNatural(){ return { w: zoomImg?.naturalWidth || 1000, h: zoomImg?.naturalHeight || 1400 }; }
+  function rotatedSize(w, h){ return Math.abs(rotation % 180) === 90 ? {w:h, h:w} : {w, h}; }
   function activeContentSize(){
-    if (isPdfMode()) return {w: pdfCssW || pdfCanvas?.offsetWidth || 1000, h: pdfCssH || pdfCanvas?.offsetHeight || 1400};
+    if (isPdfMode()) {
+      const size = rotatedSize(pdfCssW || pdfCanvas?.offsetWidth || 1000, pdfCssH || pdfCanvas?.offsetHeight || 1400);
+      return size;
+    }
     const n = imgNatural();
-    return {w: n.w * currentZoom, h: n.h * currentZoom};
+    const size = rotatedSize(n.w * currentZoom, n.h * currentZoom);
+    return size;
   }
   function isPdfMode(){ return bArea?.dataset.type === 'pdf'; }
+  function isFileMode(){ return bArea?.dataset.type === 'file'; }
   function updatePdfControls(){
     if (!pdfPageControls) return;
-    const show = isPdfMode() && !!pdfDoc;
+    const show = isPdfMode() && pdfRenderMode === 'canvas' && !!pdfDoc;
     pdfPageControls.classList.toggle('hidden', !show);
     if (pdfPageText) pdfPageText.textContent = pdfDoc ? `${faNum(pdfPageNo)}/${faNum(pdfDoc.numPages)}` : '…';
     if (pdfPrevPage) pdfPrevPage.disabled = !pdfDoc || pdfPageNo <= 1;
     if (pdfNextPage) pdfNextPage.disabled = !pdfDoc || pdfPageNo >= pdfDoc.numPages;
   }
-  function showPdfError(msg='PDF داخل مرورگر آماده نشد. دوباره تلاش کن.'){
+  function showPdfError(msg='نمایش PDF آماده نشد.'){
     if (pdfLoading) pdfLoading.classList.add('hidden');
     if (pdfFallback) {
       pdfFallback.classList.remove('hidden');
@@ -92,16 +109,29 @@
     if (pdfLoading) pdfLoading.classList.remove('hidden');
     try {
       const pdfjs = await loadPdfJs();
-      const task = pdfjs.getDocument({ url: src, httpHeaders: {'X-Madar-Viewer':'1'}, withCredentials: true, disableAutoFetch: true, disableStream: false });
+      const task = pdfjs.getDocument({
+        url: src,
+        httpHeaders: {'X-Madar-Viewer':'1'},
+        withCredentials: true,
+        disableAutoFetch: false,
+        disableStream: false,
+        disableRange: false,
+        stopAtErrors: false,
+        useSystemFonts: true,
+        disableFontFace: false,
+        isEvalSupported: false,
+        maxImageSize: -1
+      });
       pdfDoc = await task.promise;
       updatePdfControls();
       await renderPdfPage(true);
     } catch (err) {
       console.warn('PDF load failed', err);
-      showPdfError('PDF باز نشد. یک‌بار اینترنت/مرورگر را بررسی کن و دوباره تلاش بزن.');
+      showPdfError('نمایش PDF آماده نشد. دوباره تلاش کنید یا نمایش با مرورگر را انتخاب کنید.');
     }
   }
   async function renderPdfPage(resetPan=false){
+    if (pdfRenderMode === 'native') return;
     if (!pdfDoc || !pdfCanvas || !bArea) return;
     clearTimeout(pdfRenderTimer);
     if (pdfRenderTask) { try { pdfRenderTask.cancel(); } catch(_){} }
@@ -109,13 +139,13 @@
     try {
       const page = await pdfDoc.getPage(pdfPageNo);
       const r = viewerRect();
-      const vp1 = page.getViewport({scale:1});
+      const vp1 = page.getViewport({scale:1, rotation});
       const pad = r.width < 640 ? 14 : 26;
       pdfBaseScale = Math.max(0.08, Math.min((r.width - pad) / vp1.width, (r.height - pad) / vp1.height));
       if (resetPan || !currentZoom || currentZoom < pdfBaseScale * .7) currentZoom = pdfBaseScale;
       currentZoom = clamp(currentZoom, pdfBaseScale * .75, Math.max(pdfBaseScale * 6, 3));
-      const viewport = page.getViewport({scale:currentZoom});
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const viewport = page.getViewport({scale:currentZoom, rotation});
+      const dpr = Math.min(window.devicePixelRatio || 1, 3);
       pdfCanvas.width = Math.floor(viewport.width * dpr);
       pdfCanvas.height = Math.floor(viewport.height * dpr);
       pdfCanvas.style.width = viewport.width + 'px';
@@ -133,40 +163,94 @@
     } catch (err) {
       if (String(err?.name || '') === 'RenderingCancelledException') return;
       console.warn('PDF render failed', err);
-      showPdfError('نمایش این صفحه PDF با خطا روبه‌رو شد. دوباره تلاش کن.');
+      showPdfError('نمایش این صفحه PDF آماده نشد. دوباره تلاش کنید.');
     }
   }
   function schedulePdfRender(){
     clearTimeout(pdfRenderTimer);
     pdfRenderTimer = setTimeout(() => renderPdfPage(false), 90);
   }
+  function setNativePdfMode(on){
+    if (!isPdfMode()) return;
+    pdfRenderMode = on ? 'native' : 'canvas';
+    const isPhoneNow = window.matchMedia('(max-width: 760px)').matches;
+    if (bArea) bArea.classList.toggle('native-pdf-mode', on);
+    if (pdfWrap) pdfWrap.classList.toggle('native-mode', on);
+    if (pdfCompatBtn) {
+      pdfCompatBtn.innerHTML = on
+        ? '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg><span>نمایش داخل برگه</span>'
+        : '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 15h8M8 18h5"/></svg><span>نمایش با مرورگر</span>';
+    }
+    if (nativePdfFrame) {
+      nativePdfFrame.classList.toggle('hidden', !on);
+      if (on && pdfSrc) {
+        nativePdfFrame.src = pdfSrc + (isPhoneNow ? '' : '#toolbar=0&navpanes=0&scrollbar=1&view=FitH');
+        if (isPhoneNow && bArea) {
+          nativePdfFrame.style.height = Math.max(1400, Math.round(bArea.clientHeight * 2.4)) + 'px';
+        } else {
+          nativePdfFrame.style.height = '';
+        }
+      }
+    }
+    if (pdfCanvas) pdfCanvas.classList.toggle('hidden', on);
+    if (pdfLoading) pdfLoading.classList.add('hidden');
+    if (pdfFallback) pdfFallback.classList.add('hidden');
+    if (pdfPageControls) pdfPageControls.classList.toggle('hidden', on || !pdfDoc);
+    if (zoomControls) zoomControls.classList.toggle('hidden', on);
+    if (bookletHint) bookletHint.textContent = on ? 'نمایش با مرورگر؛ برای حرکت در فایل، صفحه را اسکرول کنید' : 'نمایش PDF؛ برای جابه‌جایی برگه را بکشید';
+    if (on) { panX = 0; panY = 0; currentZoom = pdfBaseScale || 1; }
+    updatePdfControls();
+    updateZoomTransform();
+  }
+
   function setViewerMode(type, src){
     const pdf = type === 'pdf';
+    const image = type === 'image';
+    const file = !pdf && !image;
+    rotation = 0;
     if (bArea) {
-      bArea.dataset.type = pdf ? 'pdf' : 'image';
+      bArea.dataset.type = pdf ? 'pdf' : (image ? 'image' : 'file');
       bArea.classList.toggle('pdf-mode', pdf);
-      bArea.style.cursor = 'grab';
+      bArea.classList.toggle('file-mode', file);
+      bArea.classList.toggle('native-pdf-mode', false);
+      bArea.style.cursor = file ? 'default' : 'grab';
     }
-    if (zoomControls) zoomControls.style.display = '';
-    pdfPageControls?.classList.toggle('hidden', !pdf);
-    if (bookletHint) bookletHint.textContent = pdf ? 'PDF را مثل عکس بکش/زوم کن' : 'با موس/انگشت بکشید';
+    if (fileFallback) fileFallback.classList.toggle('hidden', !file);
+    if (fileOpenLink) fileOpenLink.href = src || '#';
+    if (pdfOpenLink) pdfOpenLink.href = src || '#';
+    if (pdfCompatBtn) pdfCompatBtn.classList.toggle('hidden', file || !src);
+    if (zoomControls) zoomControls.style.display = file ? 'none' : '';
+    pdfPageControls?.classList.toggle('hidden', !pdf || pdfRenderMode === 'native');
+    if (bookletHint) bookletHint.textContent = pdf ? 'نمایش PDF؛ برای جابه‌جایی برگه را بکشید' : (image ? 'برای جابه‌جایی، برگه را بکشید' : 'پیش‌نمایش این فایل پشتیبانی نمی‌شود');
     if (pdf) {
+      pdfRenderMode = 'canvas';
+      if (pdfCompatBtn) pdfCompatBtn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 15h8M8 18h5"/></svg><span>نمایش با مرورگر</span>';
       if (zoomImg) { zoomImg.classList.add('hidden'); zoomImg.removeAttribute('src'); }
-      if (pdfWrap) { pdfWrap.classList.remove('hidden'); pdfWrap.dataset.src = src || ''; }
+      if (fileFallback) fileFallback.classList.add('hidden');
+      if (nativePdfFrame) { nativePdfFrame.classList.add('hidden'); nativePdfFrame.removeAttribute('src'); }
+      if (pdfCanvas) pdfCanvas.classList.remove('hidden');
+      if (pdfWrap) { pdfWrap.classList.remove('hidden'); pdfWrap.classList.remove('native-mode'); pdfWrap.dataset.src = src || ''; }
       loadPdf(src);
-    } else {
-      if (pdfWrap) pdfWrap.classList.add('hidden');
+    } else if (image) {
+      if (pdfWrap) { pdfWrap.classList.add('hidden'); pdfWrap.classList.remove('native-mode'); }
       if (pdfFallback) pdfFallback.classList.add('hidden');
-      pdfDoc = null; pdfSrc = '';
+      if (nativePdfFrame) { nativePdfFrame.classList.add('hidden'); nativePdfFrame.removeAttribute('src'); }
+      pdfDoc = null; pdfSrc = ''; pdfRenderMode = 'canvas';
       if (zoomImg) { zoomImg.classList.remove('hidden'); if (src && zoomImg.src !== src) zoomImg.src = src; }
       setTimeout(resetViewer, 40);
+    } else {
+      if (zoomImg) { zoomImg.classList.add('hidden'); zoomImg.removeAttribute('src'); }
+      if (pdfWrap) { pdfWrap.classList.add('hidden'); pdfWrap.classList.remove('native-mode'); }
+      if (pdfFallback) pdfFallback.classList.add('hidden');
+      pdfDoc = null; pdfSrc = ''; panX = 0; panY = 0; currentZoom = 1;
     }
   }
 
   function computeFitZoom(){
     if(!bArea || !zoomImg) return 1;
     const r = viewerRect();
-    const n = imgNatural();
+    const n0 = imgNatural();
+    const n = rotatedSize(n0.w, n0.h);
     const pad = r.width < 640 ? 18 : 34;
     return Math.min(1, Math.max(0.08, Math.min((r.width - pad) / n.w, (r.height - pad) / n.h)));
   }
@@ -188,25 +272,30 @@
   function updateZoomTransform() {
     boundPan();
     if (isPdfMode()) {
+      if (nativePdfFrame) {
+        nativePdfFrame.style.transformOrigin = 'center center';
+        nativePdfFrame.style.transform = pdfRenderMode === 'native' ? 'none' : `translate(-50%, -50%) translate(${panX}px, ${panY}px) rotate(${rotation}deg) scale(${currentZoom / (pdfBaseScale || 1)})`;
+      }
       if (pdfCanvas) {
         pdfCanvas.style.left = '50%';
         pdfCanvas.style.top = '50%';
         pdfCanvas.style.transformOrigin = 'center center';
         pdfCanvas.style.transform = `translate(-50%, -50%) translate(${panX}px, ${panY}px)`;
       }
-      if(zoomTxt) zoomTxt.textContent = `${Math.round((currentZoom / pdfBaseScale) * 100)}%`;
+      if(zoomTxt) zoomTxt.textContent = `${Math.round((currentZoom / (pdfBaseScale || 1)) * 100)}%`;
       return;
     }
+    if (isFileMode()) return;
     if(!zoomImg) return;
     zoomImg.style.left = '50%';
     zoomImg.style.top = '50%';
     zoomImg.style.transformOrigin = 'center center';
-    zoomImg.style.transform = `translate(-50%, -50%) translate(${panX}px, ${panY}px) scale(${currentZoom})`;
+    zoomImg.style.transform = `translate(-50%, -50%) translate(${panX}px, ${panY}px) rotate(${rotation}deg) scale(${currentZoom})`;
     if(zoomTxt) zoomTxt.textContent = `${Math.round((currentZoom / fitZoom) * 100)}%`;
   }
 
   function resetViewer(){
-    if (isPdfMode()) { currentZoom = pdfBaseScale || 1; panX = 0; panY = 0; renderPdfPage(true); return; }
+    if (isPdfMode()) { currentZoom = pdfBaseScale || 1; panX = 0; panY = 0; if (pdfRenderMode === 'native') updateZoomTransform(); else renderPdfPage(true); return; }
     fitZoom = computeFitZoom();
     currentZoom = fitZoom;
     panX = 0; panY = 0;
@@ -228,7 +317,7 @@
       panX -= dx * (ratio - 1);
       panY -= dy * (ratio - 1);
     }
-    if (isPdfMode()) schedulePdfRender(); else updateZoomTransform();
+    if (isPdfMode()) { if (pdfRenderMode === 'native') updateZoomTransform(); else schedulePdfRender(); } else updateZoomTransform();
   }
 
   document.getElementById('zoomInBtn')?.addEventListener('click', () => zoomAt(currentZoom * 1.18));
@@ -236,12 +325,14 @@
   document.getElementById('zoomResetBtn')?.addEventListener('click', resetViewer);
 
   bArea?.addEventListener('wheel', e => {
+    if (pdfRenderMode === 'native' || isFileMode()) return;
     e.preventDefault();
     const factor = e.deltaY < 0 ? 1.14 : 1 / 1.14;
     zoomAt(currentZoom * factor, e.clientX, e.clientY);
   }, {passive:false});
 
   bArea?.addEventListener('pointerdown', e => {
+    if(pdfRenderMode === 'native' || isFileMode()) return;
     if(!zoomImg && !isPdfMode()) return;
     e.preventDefault();
     bArea.setPointerCapture?.(e.pointerId);
@@ -250,7 +341,8 @@
 
     const now = Date.now();
     if (pointers.size === 1 && now - lastTapAt < 280) {
-      const targetZoom = currentZoom > fitZoom * 1.45 ? fitZoom : fitZoom * 2.2;
+      const baseZoom = isPdfMode() ? (pdfBaseScale || 1) : fitZoom;
+      const targetZoom = currentZoom > baseZoom * 1.45 ? baseZoom : baseZoom * 2.2;
       zoomAt(targetZoom, e.clientX, e.clientY);
       lastTapAt = 0;
     } else if (pointers.size === 1) {
@@ -268,6 +360,7 @@
   });
 
   bArea?.addEventListener('pointermove', e => {
+    if(pdfRenderMode === 'native' || isFileMode()) return;
     if(!pointers.has(e.pointerId) || (!zoomImg && !isPdfMode())) return;
     e.preventDefault();
     pointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
@@ -312,7 +405,7 @@
   const badgeTitle  = document.getElementById('bookletTitleBadge');
 
   function goToSheet(index) {
-    if(!sheetSelect || !zoomImg) return;
+    if(!sheetSelect) return;
     index = Math.max(0, Math.min(index, sheetSelect.options.length - 1));
     sheetSelect.value = String(index);
     const opt = sheetSelect.options[index]; if(!opt) return;
@@ -327,11 +420,39 @@
   sheetSelect?.addEventListener('change', e => goToSheet(parseInt(e.target.value)));
   nextSheet?.addEventListener('click', () => goToSheet(parseInt(sheetSelect.value || '0') + 1));
   prevSheet?.addEventListener('click', () => goToSheet(parseInt(sheetSelect.value || '0') - 1));
+  function openPdfInBrowserTab(){
+    const src = pdfWrap?.dataset.src || pdfSrc;
+    if (!src) return false;
+    window.open(src, '_blank', 'noopener');
+    return true;
+  }
   pdfPrevPage?.addEventListener('click', () => { if(pdfDoc && pdfPageNo > 1){ pdfPageNo--; renderPdfPage(true); } });
   pdfNextPage?.addEventListener('click', () => { if(pdfDoc && pdfPageNo < pdfDoc.numPages){ pdfPageNo++; renderPdfPage(true); } });
-  pdfRetry?.addEventListener('click', () => { const src = pdfWrap?.dataset.src || pdfSrc; if(src){ pdfSrc=''; loadPdf(src); } });
+  pdfRetry?.addEventListener('click', () => { const src = pdfWrap?.dataset.src || pdfSrc; if(src){ pdfSrc=''; pdfRenderMode='canvas'; loadPdf(src); } });
+  pdfCompatRetry?.addEventListener('click', () => { if (window.matchMedia('(max-width: 760px)').matches) openPdfInBrowserTab(); else setNativePdfMode(true); });
+  pdfCompatBtn?.addEventListener('click', () => {
+    if (!isPdfMode() || window.matchMedia('(max-width: 760px)').matches) { openPdfInBrowserTab(); return; }
+    setNativePdfMode(pdfRenderMode !== 'native');
+  });
+  document.getElementById('rotateLeftBtn')?.addEventListener('click', () => { rotation = (rotation + 270) % 360; if (isPdfMode() && pdfRenderMode === 'canvas') renderPdfPage(true); else resetViewer(); });
+  document.getElementById('rotateRightBtn')?.addEventListener('click', () => { rotation = (rotation + 90) % 360; if (isPdfMode() && pdfRenderMode === 'canvas') renderPdfPage(true); else resetViewer(); });
   if (sheetSelect) goToSheet(parseInt(sheetSelect.value || '0'));
   else if (bArea) setViewerMode(bArea.dataset.type || 'image', pdfWrap?.dataset.src || zoomImg?.getAttribute('src') || '');
+
+  function setToolsCollapsed(collapsed){
+    viewerPanel?.classList.toggle('booklet-tools-collapsed', !!collapsed);
+    if (toolsToggle) {
+      toolsToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      toolsToggle.innerHTML = collapsed
+        ? '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/><circle cx="12" cy="12" r="3"/><path d="M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1"/></svg><span>ابزارها</span>'
+        : '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg><span>بستن ابزار</span>';
+    }
+  }
+  toolsToggle?.addEventListener('click', () => setToolsCollapsed(!viewerPanel?.classList.contains('booklet-tools-collapsed')));
+  if (window.matchMedia('(max-width: 760px)').matches) {
+    setTimeout(() => setToolsCollapsed(true), 4200);
+    bookletToolbar?.addEventListener('click', () => { clearTimeout(window.__madarToolsTimer); window.__madarToolsTimer = setTimeout(() => setToolsCollapsed(true), 5000); });
+  }
 
   // Mobile-first switcher: on phones the booklet and answer sheet become two clean tabs.
   const samuraiLayout = document.querySelector('.exam-samurai-layout');
@@ -365,7 +486,6 @@
     if (bOpt) {
       const parent = bOpt.closest('.bubble-row-item');
       if(isCancelledRow(parent)){ toast('این سوال خط خورده و قابل پاسخ نیست','info',1800); return; }
-      const parent = bOpt.closest('.bubble-row-item');
       const qid = parent.dataset.q;
       const val = parseInt(bOpt.dataset.opt);
       parent.querySelectorAll('.bubble-opt-btn').forEach(o => o.classList.remove('selected'));
@@ -392,7 +512,8 @@
       const qid = parent.dataset.q;
       const now = !(state[qid]?.f);
       bBkm.classList.toggle('active', now);
-      bBkm.style.color      = now ? '#000'          : 'var(--text-2)';
+      bBkm.style.color = now ? '#000' : 'var(--text-2)';
+      bBkm.style.background = now ? 'var(--gold)' : 'var(--surface-1)';
       setFlag(qid, now);
       return;
     }
@@ -438,25 +559,111 @@
   const isPhone = () => window.matchMedia('(max-width: 760px)').matches;
 
   const desktopTourSteps = [
-    { title:'دفترچه سمت راست', ico:'📄', text:'سوالات اینجاست. با موس بکش، با چرخ موس یا دکمه‌های + و − زوم کن و اگر چند صفحه داری از دکمه‌های صفحه استفاده کن.', targetSelector:'.booklet-viewer-panel', mode:'booklet' },
-    { title:'پاسخ‌برگ سمت چپ', ico:'🎯', text:'برای هر سوال فقط روی گزینه ۱ تا ۴ بزن. پاسخ همان لحظه ذخیره می‌شود. اگر سوالی شک‌دار بود، پرچم را بزن.', targetSelector:'.bubble-sheet-panel', mode:'answer' },
-    { title:'پایان آزمون', ico:'⏱️', text:'بالای صفحه زمان و تعداد پاسخ‌ها را می‌بینی. آخر آزمون دکمه طلایی «پایان و ثبت» را بزن تا کارنامه ساخته شود.', targetSelector:'.exam-bar', mode:'booklet' }
+    {
+      title:'دفترچه سوالات',
+      ico:'📄',
+      text:'سوالات آزمون در این بخش نمایش داده می‌شود. برای دیدن قسمت‌های مختلف برگه، آن را با موس بکشید. برای بزرگ‌تر یا کوچک‌تر کردن برگه از دکمه‌های بزرگ‌نمایی و کوچک‌نمایی استفاده کنید.',
+      targetSelector:'.booklet-viewer-panel',
+      mode:'booklet'
+    },
+    {
+      title:'نمایش فایل با مرورگر',
+      ico:'🗎',
+      text:'اگر نوشته‌ها، تصویر یا PDF درست نمایش داده نشد، دکمه «نمایش با مرورگر» را بزنید. با این کار فایل با نمایشگر خود مرورگر باز می‌شود.',
+      targetSelector:'#pdfCompatBtn',
+      mode:'booklet'
+    },
+    {
+      title:'پاسخ‌برگ',
+      ico:'🎯',
+      text:'برای پاسخ دادن، در ردیف هر سوال روی گزینه ۱، ۲، ۳ یا ۴ بزنید. پاسخ شما به صورت خودکار ذخیره می‌شود. اگر درباره سوالی مطمئن نیستید، می‌توانید علامت پرچم را بزنید.',
+      targetSelector:'.bubble-sheet-panel',
+      mode:'answer'
+    },
+    {
+      title:'ثبت نهایی آزمون',
+      ico:'✅',
+      text:'پس از پایان پاسخ‌دادن، دکمه «ثبت» را بزنید. قبل از ثبت نهایی، تعداد پاسخ‌های داده‌شده، سوال‌های بی‌پاسخ و سوال‌های علامت‌دار نمایش داده می‌شود.',
+      targetSelector:'.exam-bar',
+      mode:'answer'
+    }
   ];
   const mobileTourSteps = [
-    { title:'دو دکمه اصلی پایین سربرگ', ico:'↔️', text:'در موبایل صفحه خلوت شده: با دکمه‌های «دفترچه سوالات» و «پاسخ‌برگ» بین سوالات و جواب‌ها جابه‌جا شو.', targetSelector:'.mobile-exam-switch', mode:'booklet' },
-    { title:'دیدن سوالات', ico:'📄', text:'در تب دفترچه، با یک انگشت برگه را جابه‌جا کن و با دو انگشت زوم کن. اگر صفحه‌ها زیاد بود، از انتخاب صفحه استفاده کن.', targetSelector:'.booklet-viewer-panel', mode:'booklet' },
-    { title:'جواب دادن', ico:'🎯', text:'به تب پاسخ‌برگ برو و گزینه را لمس کن. برای سوالات شک‌دار پرچم بزن؛ برای پاک‌کردن پاسخ، دکمه × همان ردیف را بزن.', targetSelector:'.bubble-sheet-panel', mode:'answer' },
-    { title:'ثبت نهایی', ico:'✅', text:'وقتی تمام شد، از بالای صفحه «پایان و ثبت آزمون» را بزن. قبل از ثبت، خلاصه پاسخ‌داده/بی‌پاسخ را می‌بینی.', targetSelector:'.exam-bar', mode:'answer' }
+    {
+      title:'انتخاب بخش موردنظر',
+      ico:'↔️',
+      text:'در بالای صفحه دو دکمه وجود دارد: «دفترچه سوالات» برای دیدن سوال‌ها و «پاسخ‌برگ» برای وارد کردن جواب‌ها. هر زمان لازم بود، با این دو دکمه بین سوالات و پاسخ‌برگ جابه‌جا شوید.',
+      targetSelector:'.mobile-exam-switch',
+      mode:'booklet'
+    },
+    {
+      title:'دیدن سوالات',
+      ico:'📄',
+      text:'برای دیدن قسمت‌های مختلف برگه، انگشت خود را روی برگه بگذارید و بکشید. برای بزرگ‌نمایی یا کوچک‌نمایی می‌توانید از دو انگشت یا دکمه‌های ابزار استفاده کنید.',
+      targetSelector:'.booklet-viewer-panel',
+      mode:'booklet'
+    },
+    {
+      title:'اگر فایل درست نمایش داده نشد',
+      ico:'🗎',
+      text:'اگر نوشته‌ها، تصویر یا PDF به‌هم‌ریخته بود، دکمه «نمایش با مرورگر» را بزنید. در موبایل، فایل در صفحه جدید مرورگر باز می‌شود تا بتوانید آن را راحت‌تر ببینید.',
+      targetSelector:'#pdfCompatBtn',
+      mode:'booklet'
+    },
+    {
+      title:'وارد کردن پاسخ‌ها',
+      ico:'🎯',
+      text:'دکمه «پاسخ‌برگ» را بزنید. سپس در ردیف هر سوال، گزینه موردنظر خود را انتخاب کنید. برای پاک کردن پاسخ، از دکمه ضربدر همان ردیف استفاده کنید.',
+      targetSelector:'.bubble-sheet-panel',
+      mode:'answer'
+    },
+    {
+      title:'ثبت نهایی',
+      ico:'✅',
+      text:'وقتی پاسخ‌دادن تمام شد، دکمه «ثبت» را بزنید. پس از تأیید نهایی، آزمون ثبت می‌شود و امکان تغییر پاسخ‌ها وجود ندارد.',
+      targetSelector:'.exam-bar',
+      mode:'answer'
+    }
   ];
   const standardDesktopTourSteps = [
-    { title:'صورت سوال', ico:'📝', text:'هر بار یک سوال را می‌بینی. گزینه موردنظرت را انتخاب کن؛ پاسخ به‌صورت خودکار ذخیره می‌شود.', targetSelector:'.exam-q.active' },
-    { title:'حرکت بین سوال‌ها', ico:'➡️', text:'با دکمه‌های قبلی/بعدی پایین صفحه جابه‌جا شو. دکمه فهرست هم همه سوال‌ها را یکجا نشان می‌دهد.', targetSelector:'.exam-nav' },
-    { title:'ثبت نهایی', ico:'✅', text:'آخر آزمون دکمه پایان و ثبت را بزن. قبل از ثبت، خلاصه پاسخ‌ها نمایش داده می‌شود.', targetSelector:'.exam-bar' }
+    {
+      title:'صورت سوال',
+      ico:'📝',
+      text:'هر سوال به صورت جداگانه نمایش داده می‌شود. متن سوال را بخوانید و گزینه موردنظر خود را انتخاب کنید. پاسخ شما به صورت خودکار ذخیره می‌شود.',
+      targetSelector:'.exam-q.active'
+    },
+    {
+      title:'حرکت بین سوال‌ها',
+      ico:'➡️',
+      text:'برای رفتن به سوال بعدی یا قبلی، از دکمه‌های پایین صفحه استفاده کنید. دکمه فهرست سوالات، وضعیت سوال‌های پاسخ‌داده، بی‌پاسخ و علامت‌دار را نشان می‌دهد.',
+      targetSelector:'.exam-nav'
+    },
+    {
+      title:'ثبت نهایی آزمون',
+      ico:'✅',
+      text:'پس از پایان پاسخ‌دادن، دکمه ثبت را بزنید. قبل از ثبت نهایی، خلاصه وضعیت پاسخ‌ها نمایش داده می‌شود.',
+      targetSelector:'.exam-bar'
+    }
   ];
   const standardMobileTourSteps = [
-    { title:'سوال را بخوان', ico:'📝', text:'در موبایل فقط یک سوال نمایش داده می‌شود تا صفحه شلوغ نشود. گزینه را لمس کن تا ذخیره شود.', targetSelector:'.exam-q.active' },
-    { title:'ناوبری پایین صفحه', ico:'⬅️', text:'از دکمه‌های پایین برای سوال بعد/قبل استفاده کن. از دکمه فهرست، شماره سوال‌های پاسخ‌داده و خالی را ببین.', targetSelector:'.exam-nav' },
-    { title:'پایان آزمون', ico:'✅', text:'وقتی تمام شد، ثبت نهایی را بزن. اگر زمان تمام شود سیستم خودکار ثبت می‌کند.', targetSelector:'.exam-bar' }
+    {
+      title:'خواندن سوال',
+      ico:'📝',
+      text:'هر بار یک سوال نمایش داده می‌شود. سوال را بخوانید و گزینه موردنظر خود را لمس کنید. پاسخ به صورت خودکار ذخیره می‌شود.',
+      targetSelector:'.exam-q.active'
+    },
+    {
+      title:'رفتن به سوال‌های دیگر',
+      ico:'➡️',
+      text:'برای دیدن سوال بعدی یا قبلی، از دکمه‌های پایین صفحه استفاده کنید. با دکمه فهرست سوالات می‌توانید وضعیت همه سوال‌ها را ببینید.',
+      targetSelector:'.exam-nav'
+    },
+    {
+      title:'ثبت نهایی',
+      ico:'✅',
+      text:'وقتی پاسخ‌دادن تمام شد، دکمه ثبت را بزنید. قبل از ثبت نهایی، خلاصه پاسخ‌ها نمایش داده می‌شود.',
+      targetSelector:'.exam-bar'
+    }
   ];
 
   let currTourStep = 0;
@@ -748,62 +955,6 @@
 
   show(0);
 
-  /* =================================================================
-     Persian PDF text layer (RTL) — render selectable text on top of canvas
-     ================================================================= */
-  const pdfTextLayer = document.getElementById('bookletPdfTextLayer');
-  async function renderPdfTextLayer() {
-    if (!pdfDoc || !pdfTextLayer || !pdfCanvas) return;
-    try {
-      const page = await pdfDoc.getPage(pdfPageNo);
-      const scale = currentZoom || pdfBaseScale || 1;
-      const viewport = page.getViewport({scale});
-      const textContent = await page.getTextContent({disableCombineTextItems: false, includeMarkedContent: false});
-      const cssWidth = viewport.width, cssHeight = viewport.height;
-      pdfTextLayer.style.width = cssWidth + 'px';
-      pdfTextLayer.style.height = cssHeight + 'px';
-      // Position canvas and text layer together (canvas centered, layer aligned)
-      pdfTextLayer.style.left = '50%';
-      pdfTextLayer.style.top = '50%';
-      pdfTextLayer.style.transformOrigin = '0 0';
-
-      pdfTextLayer.innerHTML = '';
-      const hasPersian = /[\u0600-\u06FF]/.test(textContent.items.map(i => i.str).join(''));
-      let placedCount = 0;
-      for (const item of textContent.items) {
-        if (!item.str || !item.transform) continue;
-        const tx = pdfjs.Util.transform(viewport.transform, item.transform);
-        const fontHeight = Math.max(Math.hypot(tx[2], tx[3]), 8);
-        const angle = Math.atan2(tx[1], tx[0]);
-        const span = document.createElement('span');
-        span.textContent = item.str;
-        span.style.left = tx[4] + 'px';
-        span.style.top = (tx[5] - fontHeight) + 'px';
-        span.style.fontSize = fontHeight + 'px';
-        span.style.transform = `rotate(${angle}rad)`;
-        span.style.transformOrigin = '0% 0%';
-        // Persian RTL handling: برای متن فارسی، div معکوس می‌شود
-        if (hasPersian) {
-          span.style.writingMode = 'horizontal-tb';
-          span.style.direction = 'rtl';
-          span.style.unicodeBidi = 'embed';
-        }
-        pdfTextLayer.appendChild(span);
-        placedCount++;
-      }
-      pdfTextLayer.classList.add('show');
-      // Hide text layer visually (we use it for copy/selection); keep opacity 0 for clean look
-      pdfTextLayer.classList.remove('show');
-    } catch (err) {
-      // text layer is optional
-    }
-  }
-
-  // Hook into renderPdfPage
-  const _renderPdfPageOrig = renderPdfPage;
-  renderPdfPage = function(resetPan){
-    return _renderPdfPageOrig(resetPan).then(() => renderPdfTextLayer());
-  };
 
 
 })();

@@ -213,7 +213,7 @@
     if (b) window.requestMadarNotifications();
   });
 
-  // Polling — هر ۶۰ ثانیه اعلان‌های جدید رو چک کن و Push بزن
+  // Polling — هر ۲ ثانیه اعلان‌های جدید رو چک کن و Push بزن
   let lastPollId = parseInt(localStorage.getItem('madar_last_poll_id') || '0');
 
   async function pollNotifications() {
@@ -243,8 +243,8 @@
 
   // اجرای اولیه با تأخیر ۳ ثانیه + بعد هر ۶۰ ثانیه
   window.addEventListener('load', () => {
-    setTimeout(pollNotifications, 3000);
-    setInterval(pollNotifications, 60000);
+    setTimeout(pollNotifications, 2000);
+    setInterval(pollNotifications, 2000);
   });
 
   // وقتی صفحه دوباره visible می‌شه (مثلاً برگشت از اپ دیگه)

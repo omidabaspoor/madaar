@@ -38,12 +38,40 @@ function ensure_message_media_columns(): bool
     }
 }
 
+function chat_is_chat_only_user(int $userId): bool {
+    if ($userId <= 0) return false;
+    try {
+        $st = db()->prepare("SELECT 1 FROM advisor_settings WHERE advisor_id=? AND skey='chat_only_user' AND svalue='1' LIMIT 1");
+        $st->execute([$userId]);
+        return (bool)$st->fetchColumn();
+    } catch (Throwable $e) { return false; }
+}
+function chat_only_users(): array {
+    try {
+        return db()->query("SELECT u.id, u.full_name, u.field, u.status, 'chat_guest' role_label
+            FROM users u
+            JOIN advisor_settings s ON s.advisor_id=u.id AND s.skey='chat_only_user' AND s.svalue='1'
+            WHERE u.role='advisor' AND u.status='active'
+            ORDER BY u.full_name")->fetchAll();
+    } catch (Throwable $e) { return []; }
+}
 /** بررسی مجاز بودن گفتگو (مشاور↔دانش‌آموز) */
 function can_chat(array $u, int $other): bool {
     $o = get_user($other);
     if (!$o) return false;
-    if (in_array($u['role'], ['advisor','admin'], true)) return $o['role'] === 'student';
-    return in_array($o['role'], ['advisor','admin'], true);
+    $meChatOnly = chat_is_chat_only_user((int)$u['id']);
+    $otherChatOnly = chat_is_chat_only_user((int)$other);
+
+    // کاربر فقط-چت فقط با مشاوران/ادمین‌های واقعی گفتگو می‌کند.
+    if ($meChatOnly) return in_array($o['role'], ['advisor','admin'], true) && !$otherChatOnly;
+
+    // مشاور/ادمین واقعی: دانش‌آموزان + کاربران مهمان چت
+    if (in_array($u['role'], ['advisor','admin'], true)) {
+        return $o['role'] === 'student' || $otherChatOnly;
+    }
+
+    // دانش‌آموز: فقط مشاور/ادمین واقعی؛ مهمان‌های چت در لیست دانش‌آموز نمی‌آیند.
+    return in_array($o['role'], ['advisor','admin'], true) && !$otherChatOnly;
 }
 
 function chat_letters(string $name): string {
@@ -204,6 +232,8 @@ function format_message(array $m, int $me): array
         'body'=>(string)($m['body'] ?? ''),
         'time'=>fa_num(date('H:i',strtotime($m['created_at']))),
         'date'=>jalali_date($m['created_at']),
+        // برای پیام‌های خودم: آیا طرف مقابل پیام را دیده است؟
+        'read'=>(int)($m['is_read'] ?? 0) === 1,
         'attachment'=>$attachment,
     ];
 }
@@ -215,17 +245,28 @@ switch ($action) {
 
 case 'contacts': {
     if (in_array($u['role'], ['advisor','admin'], true)) {
-        $accessMode = $u['access_mode'] ?? 'all';
-        $role = $u['role'];
-        $where = 'role="student" AND status="active"';
-        if ($accessMode === 'restricted') {
-            $where .= ' AND id IN (SELECT student_id FROM advisor_student_access WHERE advisor_id=' . (int)$me . ')';
-        } elseif ($role !== 'admin') {
-            $where .= ' AND (advisor_id=' . (int)$me . ' OR id IN (SELECT student_id FROM advisor_student_access WHERE advisor_id=' . (int)$me . '))';
+        if (chat_is_chat_only_user($me)) {
+            // مهمان چت: همه مشاوران واقعی و مدیر ارشد را ببیند.
+            $rows = db()->query("SELECT u.id, u.full_name, u.field, u.status, 'advisor' role_label
+                FROM users u
+                WHERE u.role IN ('advisor','admin') AND u.status='active' AND u.id<>$me
+                  AND u.id NOT IN (SELECT advisor_id FROM advisor_settings WHERE skey='chat_only_user' AND svalue='1')
+                ORDER BY FIELD(u.role,'admin','advisor'), u.full_name")->fetchAll();
+        } else {
+            $accessMode = $u['access_mode'] ?? 'all';
+            $role = $u['role'];
+            $where = 'role="student" AND status="active"';
+            if ($accessMode === 'restricted') {
+                $where .= ' AND id IN (SELECT student_id FROM advisor_student_access WHERE advisor_id=' . (int)$me . ')';
+            } elseif ($role !== 'admin') {
+                $where .= ' AND (advisor_id=' . (int)$me . ' OR id IN (SELECT student_id FROM advisor_student_access WHERE advisor_id=' . (int)$me . '))';
+            }
+            $rows = db()->query("SELECT id, full_name, field, status, 'student' role_label FROM users WHERE " . $where . ' ORDER BY full_name')->fetchAll();
+            // مشاوران واقعی باید بتوانند با کاربران فقط-چت هم گفتگو کنند.
+            $rows = array_merge($rows, chat_only_users());
         }
-        $rows = db()->query('SELECT id, full_name, field, status FROM users WHERE ' . $where . ' ORDER BY full_name')->fetchAll();
     } else {
-        $rows = db()->query('SELECT id, full_name, field, status FROM users WHERE role IN ("advisor","admin") ORDER BY id')->fetchAll();
+        $rows = db()->query("SELECT id, full_name, field, status, 'advisor' role_label FROM users WHERE role IN ('advisor','admin') AND status='active' AND id NOT IN (SELECT advisor_id FROM advisor_settings WHERE skey='chat_only_user' AND svalue='1') ORDER BY FIELD(role,'admin','advisor'), full_name")->fetchAll();
     }
 
     foreach ($rows as &$r) {
@@ -290,7 +331,9 @@ case 'send': {
     $msgId = (int)db()->lastInsertId();
     log_activity($me, 'message_sent', 'message', $msgId, ['گیرنده' => $recipName, 'محتوا' => $preview]);
 
-    notify($other, 'پیام جدید 💬', $preview, 'message', $u['role']==='student'?'admin/messages.php?with='.$me:'student/messages.php');
+    $otherUser = get_user($other);
+    $link = (($otherUser['role'] ?? '') === 'student') ? 'student/messages.php' : ('admin/messages.php?with=' . $me);
+    notify($other, 'پیام جدید 💬', $preview, 'message', $link);
     json_out(['ok'=>true,'time'=>fa_num(date('H:i')),'id'=>$msgId]);
 }
 

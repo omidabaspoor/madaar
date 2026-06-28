@@ -18,11 +18,22 @@ task_status_schema_ready();
 auto_mark_missed_tasks($studentId);
 $plan = find_or_create_plan($studentId, (int)$u['id'], $weekStart);
 ensure_special_defaults_for_empty_plan((int)$plan['id']);
+normalize_builder_plan_capacity((int)$plan['id']);
 $grid = tasks_grid((int)$plan['id']);
 $progress = plan_progress((int)$plan['id']);
-$redTasks = array_values(array_filter(plan_tasks((int)$plan['id']), fn($rt)=>task_status($rt)==='missed'));
+$planTasks = plan_tasks((int)$plan['id']);
+$normalTaskCount = count(array_filter($planTasks, fn($x)=>(int)$x['unit_index'] !== 8));
+$specialTaskCount = count(array_filter($planTasks, fn($x)=>(int)$x['unit_index'] === 8));
+$normalFillPct = min(100, round($normalTaskCount / (7*7) * 100));
+$redTasks = array_values(array_filter($planTasks, fn($rt)=>task_status($rt)==='missed'));
 $subjects = all_subjects();
 $copyTargets = array_values(array_filter(advisor_students((int)$u['id'], 'active'), fn($s) => (int)$s['id'] !== $studentId));
+$historyPlans = [];
+try {
+    $hp = db()->prepare('SELECT p.*, COUNT(t.id) task_count FROM plans p LEFT JOIN tasks t ON t.plan_id=p.id WHERE p.student_id=? AND p.id<>? GROUP BY p.id ORDER BY p.week_start DESC LIMIT 12');
+    $hp->execute([$studentId, (int)$plan['id']]);
+    $historyPlans = $hp->fetchAll();
+} catch (Throwable $e) { $historyPlans = []; }
 
 $prevWeek = date('Y-m-d', strtotime($weekStart.' -7 day'));
 $nextWeek = date('Y-m-d', strtotime($weekStart.' +7 day'));
@@ -52,6 +63,7 @@ panel_start('برنامه‌ریز هفتگی', '', 'admin', 'plans', ['builder.
 <div class="flex gap-2 wrap mb-4">
   <button class="btn btn-ghost btn-sm" id="copyWeekBtn"><?= icon('copy',15) ?> کپی از هفته قبل</button>
   <button class="btn btn-ghost btn-sm" id="seedSpecialBtn"><?= icon('sparkles',15) ?> واحد ویژه پیش‌فرض</button>
+  <button class="btn btn-ghost btn-sm" id="clearPlanBtn" style="color:var(--danger);border-color:rgba(217,116,116,.28)"><?= icon('trash',15) ?> حذف کل برنامه</button>
   <span class="copy-hint" id="copyHint" style="display:none">
     <?= icon('copy',14) ?> <span id="copyHintText">برای کپی، خانه مقصد را بزنید</span>
     <button type="button" id="stopPasteBtn" class="copy-hint-stop" data-tip="پایان کپی (Esc)"><?= icon('close',13) ?></button>
@@ -63,6 +75,26 @@ panel_start('برنامه‌ریز هفتگی', '', 'admin', 'plans', ['builder.
     <?= $plan['status']==='published' ? icon('edit',15).' بازگشت به پیش‌نویس' : icon('rocket',15).' انتشار برنامه' ?>
   </button>
 </div>
+
+<?php if ($historyPlans): ?>
+<div class="copy-plan-panel plan-memory-panel">
+  <div>
+    <b><?= icon('history',16) ?> حافظه برنامه‌های قبلی این دانش‌آموز</b>
+    <span class="muted">یک برنامه قبلی را انتخاب کنید تا جایگزین برنامه هفته جاری شود.</span>
+  </div>
+  <div class="copy-plan-actions">
+    <select class="select" id="historyPlanSelect">
+      <option value="">انتخاب برنامه قبلی…</option>
+      <?php foreach ($historyPlans as $hp):
+        $hpEnd = date('Y-m-d', strtotime($hp['week_start'].' +6 day'));
+      ?>
+      <option value="<?= (int)$hp['id'] ?>"><?= jalali_date($hp['week_start']) ?> تا <?= jalali_date($hpEnd) ?> · <?= fa_num((int)$hp['task_count']) ?> تسک</option>
+      <?php endforeach; ?>
+    </select>
+    <button class="btn btn-sage btn-sm" id="applyHistoryPlanBtn" type="button"><?= icon('copy',15) ?> جایگذاری</button>
+  </div>
+</div>
+<?php endif; ?>
 
 <?php if ($copyTargets): ?>
 <div class="copy-plan-panel">
@@ -126,8 +158,8 @@ panel_start('برنامه‌ریز هفتگی', '', 'admin', 'plans', ['builder.
 
 <div class="plan-summary">
   <div class="ps-item"><span class="icon-tile sage" style="width:38px;height:38px"><?= icon('list',18) ?></span><div><div class="v" id="sumTotal"><?= fa_num($progress['total']) ?></div><div class="k">کل تسک‌ها</div></div></div>
-  <div class="ps-item"><span class="icon-tile" style="width:38px;height:38px"><?= icon('check-circle',18) ?></span><div><div class="v" id="sumDone"><?= fa_num($progress['done_display']) ?></div><div class="k">انجام‌شده</div></div></div>
-  <div class="ps-item" style="flex:1;min-width:200px"><div style="flex:1;width:100%"><div class="between" style="font-size:.78rem;margin-bottom:5px"><span class="k">پیشرفت دانش‌آموز</span><span class="v" id="sumPct" style="font-size:.95rem"><?= fa_num($progress['percent']) ?>٪</span></div><div class="progress"><span id="sumBar" style="width:<?= $progress['percent'] ?>%"></span></div></div></div>
+  <div class="ps-item"><span class="icon-tile" style="width:38px;height:38px"><?= icon('check-circle',18) ?></span><div><div class="v" id="sumDone"><?= fa_num($normalTaskCount) ?></div><div class="k">واحدهای عادی پرشده</div></div></div>
+  <div class="ps-item" style="flex:1;min-width:200px"><div style="flex:1;width:100%"><div class="between" style="font-size:.78rem;margin-bottom:5px"><span class="k">تسک‌های واحد ویژه</span><span class="v" id="sumPct" style="font-size:.95rem"><?= fa_num($specialTaskCount) ?></span></div><div class="progress"><span id="sumBar" style="width:<?= $normalFillPct ?>%"></span></div></div></div>
 </div>
 
 <div class="copy-plan-panel red-tasks-mini red-tasks-closed">
@@ -182,6 +214,19 @@ panel_start('برنامه‌ریز هفتگی', '', 'admin', 'plans', ['builder.
         <!-- ستون راست: درس + نوع + پیش‌فرض‌ها -->
         <section class="tm-col">
           <div class="field">
+            <label><?= icon('tasks',15) ?> نوع تسک</label>
+            <div class="type-grid" id="typeGrid">
+              <?php foreach (TASK_TYPES as $k=>$tt): ?>
+              <div class="type-opt <?= $k==='study_test'?'active':'' ?>" data-type="<?= $k ?>">
+                <span class="icon-tile <?= in_array($k,['test','exam'])?'':'sage' ?>"><?= icon($tt['icon'],18) ?></span>
+                <div class="t"><?= e($tt['label']) ?></div>
+              </div>
+              <?php endforeach; ?>
+            </div>
+          </div>
+
+
+          <div class="field">
             <label><?= icon('book',15) ?> درس</label>
             <div class="subj-chips" id="subjChips">
               <button type="button" class="subj-chip active" data-subject=""><?= icon('close',13) ?> بدون درس</button>
@@ -199,16 +244,15 @@ panel_start('برنامه‌ریز هفتگی', '', 'admin', 'plans', ['builder.
             </select>
           </div>
 
-          <div class="field">
-            <label><?= icon('tasks',15) ?> نوع تسک</label>
-            <div class="type-grid" id="typeGrid">
-              <?php foreach (TASK_TYPES as $k=>$tt): ?>
-              <div class="type-opt <?= $k==='study_test'?'active':'' ?>" data-type="<?= $k ?>">
-                <span class="icon-tile <?= in_array($k,['test','exam'])?'':'sage' ?>"><?= icon($tt['icon'],18) ?></span>
-                <div class="t"><?= e($tt['label']) ?></div>
-              </div>
-              <?php endforeach; ?>
+          <div class="field chapter-step-field" id="chapterStepField">
+            <label><?= icon('book-open',15) ?> فصل / درس کتاب</label>
+            <div class="chap-picker-wrap" id="chapPickerWrap" hidden>
+              <button type="button" class="btn btn-sage btn-sm" id="chapPickerBtn">
+                <?= icon('book-open',15) ?> انتخاب فصل / درس از کتاب درسی
+              </button>
+              <span class="muted" style="font-size:.74rem">بر اساس رشته‌ی <?= e($student['field'] ?: '—') ?></span>
             </div>
+            <div class="muted no-chapter-hint" style="font-size:.76rem;line-height:1.7">بعد از انتخاب درس، فهرست فصل‌ها به‌صورت خودکار باز می‌شود.</div>
           </div>
 
         </section>
@@ -216,21 +260,11 @@ panel_start('برنامه‌ریز هفتگی', '', 'admin', 'plans', ['builder.
         <!-- ستون چپ: جزئیات (خودکار پر شده، قابل ویرایش) -->
         <section class="tm-col">
           <div class="field">
-            <label for="f_title"><?= icon('book',15) ?> عنوان تسک <span class="muted">(درس + فصل)</span></label>
+            <label for="f_title"><?= icon('edit',15) ?> عنوان نهایی تسک</label>
             <input class="input" id="f_title" name="title" placeholder="با انتخاب درس خودکار پر می‌شود — مثلاً «زیست ف۴»">
-            <div class="chap-picker-wrap" id="chapPickerWrap" hidden>
-              <button type="button" class="btn btn-sage btn-sm" id="chapPickerBtn">
-                <?= icon('book-open',15) ?> انتخاب فصل / درس از کتاب درسی
-              </button>
-              <span class="muted" style="font-size:.74rem">بر اساس رشته‌ی <?= e($student['field'] ?: '—') ?> (همه پایه‌ها)</span>
-            </div>
           </div>
 
-          <div class="grid gap-3" style="grid-template-columns:1.3fr 1fr">
-            <div class="field">
-              <label for="f_target"><?= icon('target',15) ?> مقدار هدف</label>
-              <input class="input" id="f_target" name="target_count" type="number" min="0" inputmode="numeric" placeholder="مثلاً ۴۰">
-            </div>
+          <div class="grid gap-3" style="grid-template-columns:1fr 1.2fr">
             <div class="field">
               <label for="f_unit"><?= icon('list',15) ?> واحد</label>
               <select class="select" id="f_unit" name="target_unit">
@@ -239,27 +273,20 @@ panel_start('برنامه‌ریز هفتگی', '', 'admin', 'plans', ['builder.
                 <?php endforeach; ?>
               </select>
             </div>
+            <div class="field">
+              <label for="f_target"><?= icon('target',15) ?> مقدار هدف</label>
+              <input class="input" id="f_target" name="target_count" type="number" min="0" inputmode="numeric" placeholder="مثلاً ۴۰">
+            </div>
           </div>
 
-          <div class="grid gap-3" style="grid-template-columns:1fr 1fr">
-            <div class="field">
-              <label for="f_dur"><?= icon('clock',15) ?> مدت</label>
-              <select class="select" id="f_dur" name="duration_min">
-                <option value="">اختیاری</option>
-                <?php foreach ([15=>'۱۵ دقیقه',30=>'۳۰ دقیقه',45=>'۴۵ دقیقه',50=>'۵۰ دقیقه',60=>'۶۰ دقیقه / ۱ ساعت',75=>'۷۵ دقیقه',90=>'۹۰ دقیقه',120=>'۱۲۰ دقیقه / ۲ ساعت',150=>'۱۵۰ دقیقه',180=>'۱۸۰ دقیقه / ۳ ساعت'] as $dm=>$dl): ?>
-                <option value="<?= $dm ?>"><?= e($dl) ?></option>
-                <?php endforeach; ?>
-              </select>
-            </div>
-            <div class="field">
-              <label for="f_prio"><?= icon('flag',15) ?> اولویت <span class="muted">(اختیاری)</span></label>
-              <select class="select" id="f_prio" name="priority">
-                <option value="">بدون اولویت</option>
-                <option value="normal">عادی</option>
-                <option value="high">مهم</option>
-                <option value="low">کم‌اهمیت</option>
-              </select>
-            </div>
+          <div class="field">
+            <label for="f_dur"><?= icon('clock',15) ?> مدت</label>
+            <select class="select" id="f_dur" name="duration_min">
+              <option value="">اختیاری</option>
+              <?php foreach ([15=>'۱۵ دقیقه',30=>'۳۰ دقیقه',45=>'۴۵ دقیقه',50=>'۵۰ دقیقه',60=>'۶۰ دقیقه / ۱ ساعت',75=>'۷۵ دقیقه',90=>'۹۰ دقیقه',120=>'۱۲۰ دقیقه / ۲ ساعت',150=>'۱۵۰ دقیقه',180=>'۱۸۰ دقیقه / ۳ ساعت'] as $dm=>$dl): ?>
+              <option value="<?= $dm ?>"><?= e($dl) ?></option>
+              <?php endforeach; ?>
+            </select>
           </div>
 
           <div class="field">
@@ -327,8 +354,9 @@ panel_start('برنامه‌ریز هفتگی', '', 'admin', 'plans', ['builder.
 <div class="ctx-menu" id="ctxMenu" role="menu" hidden>
   <button type="button" class="ctx-item" data-act="edit"><?= icon('edit',15) ?> ویرایش تسک</button>
   <button type="button" class="ctx-item" data-act="copy"><?= icon('copy',15) ?> کپی تسک</button>
-  <button type="button" class="ctx-item" data-act="duplicate"><?= icon('plus',15) ?> تکثیر در همین خانه</button>
-  <button type="button" class="ctx-item" data-act="done"><?= icon('check-circle',15) ?> تغییر وضعیت انجام</button>
+  <button type="button" class="ctx-item" data-act="copy_next_day"><?= icon('copy',15) ?> کپی به روز بعد</button>
+  <button type="button" class="ctx-item" data-act="move_next_day"><?= icon('arrow-left',15) ?> انتقال به روز بعد</button>
+  <button type="button" class="ctx-item" data-act="move_special"><?= icon('sparkles',15) ?> انتقال به واحد ویژه</button>
   <div class="ctx-sep"></div>
   <button type="button" class="ctx-item danger" data-act="delete"><?= icon('trash',15) ?> حذف تسک</button>
 </div>
@@ -355,6 +383,29 @@ panel_start('برنامه‌ریز هفتگی', '', 'admin', 'plans', ['builder.
 </script>
 <?php
 panel_end(['builder.js']);
+
+/* ---- normalize current plan capacity for advisor builder ---- */
+function normalize_builder_plan_capacity(int $planId): void {
+    try {
+        db()->prepare("DELETE t1 FROM tasks t1
+            JOIN tasks t2 ON t1.plan_id=t2.plan_id
+             AND t1.day_index=t2.day_index
+             AND t1.unit_index=t2.unit_index
+             AND t1.unit_index<>8
+             AND t1.id>t2.id
+            WHERE t1.plan_id=?")->execute([$planId]);
+    } catch (Throwable $e) {}
+    try {
+        $st = db()->prepare('SELECT id, day_index FROM tasks WHERE plan_id=? AND unit_index=8 ORDER BY day_index, sort_order, id');
+        $st->execute([$planId]);
+        $seen = []; $del = [];
+        foreach ($st->fetchAll() as $r) {
+            $d = (int)$r['day_index']; $seen[$d] = ($seen[$d] ?? 0) + 1;
+            if ($seen[$d] > 3) $del[] = (int)$r['id'];
+        }
+        if ($del) db()->prepare('DELETE FROM tasks WHERE id IN ('.implode(',', array_fill(0,count($del),'?')).')')->execute($del);
+    } catch (Throwable $e) {}
+}
 
 /* ---- seed default special unit once for empty plans ---- */
 function ensure_special_defaults_for_empty_plan(int $planId): void {
@@ -396,8 +447,9 @@ function subject_test_default(string $name): int {
 
 /* ---- helper: pill markup (server-side, mirrors JS) ---- */
 function builder_task_pill(array $t): string {
+    // در پنل مشاور، برنامه به‌صورت خام نمایش داده می‌شود و وضعیت اجرای دانش‌آموز روی رنگ/ظاهر تسک اثر نمی‌گذارد.
     $st = task_status($t);
-    $done = $st === 'full' ? 'done' : ($st === 'partial' ? 'partial' : ($st === 'missed' ? 'missed' : ''));
+    $done = '';
     $meta = [];
     if ($t['target_count']!==null) $meta[] = fa_num($t['target_count']).' '.e($t['target_unit']);
     if ($t['duration_min']) $meta[] = fa_num($t['duration_min']).' دقیقه';
@@ -405,8 +457,7 @@ function builder_task_pill(array $t): string {
     $metaStr = implode(' · ', $meta);
     $src = trim((string)($t['source'] ?? ''));
     $type = TASK_TYPES[$t['task_type']]['label'] ?? $t['task_type'];
-    $statusTxt = ['full'=>'✓ کامل','partial'=>'● ناقص','missed'=>'× قرمز','pending'=>'در انتظار'][$st] ?? '';
-    return '<div class="task-pill type-'.e($t['task_type']).' status-'.$st.' '.$done.'" draggable="true" data-id="'.(int)$t['id'].'"'
+    return '<div class="task-pill type-'.e($t['task_type']).' '.$done.'" draggable="true" data-id="'.(int)$t['id'].'"'
         .' data-json="'.e(json_encode([
             'id'=>(int)$t['id'],'title'=>$t['title'],'description'=>$t['description'],'source'=>$src,'task_type'=>$t['task_type'],
             'day_index'=>(int)$t['day_index'],'unit_index'=>(int)$t['unit_index'],
@@ -422,6 +473,6 @@ function builder_task_pill(array $t): string {
         .'<span class="tp-title">'.e($t['title']).'</span>'
         .($metaStr?'<span class="tp-meta">'.$metaStr.'</span>':'')
         .($src?'<span class="tp-src">'.icon('book',11).' '.e($src).'</span>':'')
-        .'<span class="tp-type">'.e($type).' · '.$statusTxt.'</span>'
+        .'<span class="tp-type">'.e($type).'</span>'
         .'</div>';
 }

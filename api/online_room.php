@@ -172,7 +172,7 @@ case 'whiteboard_save': {
 
     $snapshot = trim((string)($body['snapshot'] ?? ''));
     if (!$snapshot) out(['ok'=>false, 'error'=>'snapshot خالی است', 'code'=>'empty_snapshot'], 422);
-    if (strlen($snapshot) > 5 * 1024 * 1024) out(['ok'=>false, 'error'=>'snapshot خیلی بزرگ است', 'code'=>'too_large'], 413);
+    if (strlen($snapshot) > 15 * 1024 * 1024) out(['ok'=>false, 'error'=>'snapshot خیلی بزرگ است', 'code'=>'too_large'], 413);
 
     $vid = whiteboard_save($sessionId, $me, $snapshot);
     out(['ok'=>true, 'version'=>$vid]);
@@ -350,6 +350,21 @@ case 'permission_status': {
     $st = db()->prepare('SELECT * FROM session_permission_requests WHERE session_id=? AND user_id=? AND id>? AND status<>"pending" ORDER BY id ASC LIMIT 20');
     $st->execute([$sessionId, $me, $afterId]);
     out(['ok'=>true, 'requests'=>$st->fetchAll() ?: []]);
+}
+
+
+case 'session_state': {
+    $sessionId = (int)($body['session_id'] ?? 0);
+    $session = online_session_get($sessionId);
+    if (!$session) out(['ok'=>false, 'error'=>'جلسه یافت نشد'], 404);
+    if (!online_room_api_can_access($session, $role, $me)) out(['ok'=>false, 'error'=>'دسترسی ندارید'], 403);
+    out(['ok'=>true, 'status'=>$session['status'], 'permissions'=>[
+        'mic'=>(bool)$session['allow_student_mic'],
+        'cam'=>(bool)$session['allow_student_cam'],
+        'screen'=>(bool)$session['allow_screen_share'],
+        'whiteboard'=>(bool)$session['allow_whiteboard'],
+        'chat'=>(bool)$session['allow_chat'],
+    ]]);
 }
 
 // ============================================

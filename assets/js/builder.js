@@ -55,7 +55,6 @@
   const DUR = CFG.defaultDuration || 90;
   const TESTS = CFG.defaultTestCount || 40;
   const PRIO = CFG.defaultPriority || 'normal';
-  // اولویت پیش‌فرض «بدون اولویت» است؛ مشاور در صورت تمایل خودش تعیین می‌کند.
   const TYPE_DEFAULTS = {
     study:       { target:'',    unit:'درسنامه', dur:DUR, title:'مطالعه',      priority:'', desc:'' },
     test:        { target:TESTS, unit:'تست',     dur:DUR, title:'تست',         priority:'', desc:'' },
@@ -130,7 +129,7 @@
       duration_min:t.duration_min??'', priority:t.priority||'normal', subject_id:t.subject_id??'',
       is_done:t.is_done?1:0
     };
-    return `<div class="task-pill type-${esc(t.task_type)} ${t.is_done?'done':''}" draggable="true" data-id="${t.id}" data-json='${dataAttr(data)}'>
+    return `<div class="task-pill type-${esc(t.task_type)}" draggable="true" data-id="${t.id}" data-json='${dataAttr(data)}'>
       <div class="tp-actions">
         <button class="tp-copy" data-copy title="کپی این تسک">${copyIco}</button>
         <button class="tp-del" data-del title="حذف">${closeIco}</button>
@@ -144,6 +143,15 @@
 
   function cellTasks(cell) { return cell.querySelector('.cell-tasks'); }
   function findCell(day, unit) { return grid.querySelector(`.cell[data-day="${day}"][data-unit="${unit}"]`); }
+  function insertTaskIntoCell(t, cell){
+    if (!cell) return;
+    if (String(t.unit_index ?? cell.dataset.unit) !== '8') cellTasks(cell).innerHTML = '';
+    else {
+      const pills = [...cellTasks(cell).querySelectorAll('.task-pill')];
+      if (pills.length >= 3) pills.slice(2).forEach(p=>p.remove());
+    }
+    cellTasks(cell).insertAdjacentHTML('beforeend', pillHTML(t));
+  }
 
   /* ---------------- copy / paste ---------------- */
   function clearCopyMode() {
@@ -226,8 +234,9 @@
     targetInput.value = target ?? '';
     unitInput.value = d.unit || 'تست';
     ensureSelectValue(durInput, d.dur ?? '');
-    prioInput.value = d.priority ?? '';   // پیش‌فرض: بدون اولویت
+    if (prioInput) prioInput.value = d.priority ?? '';
     if (d.desc !== undefined) descInput.value = d.desc || '';
+    if (srcInput && !document.getElementById('taskId').value) srcInput.value = '';
     if (!titleTouched || force) { titleInput.value = buildTitle(type, d.title); titleTouched = false; }
     updatePreview();
   }
@@ -253,9 +262,9 @@
     unitInput.value = p.unit || 'تست';
     ensureSelectValue(durInput, p.dur ?? '');
     const d = TYPE_DEFAULTS[p.type] || {};
-    prioInput.value = '';   // بدون اولویت مگر مشاور خودش بزند
+    if (prioInput) prioInput.value = '';
     descInput.value = p.combo ? 'درسنامه + تست' : (d.desc || '');
-    if (srcInput && p.source !== undefined) srcInput.value = p.source;
+    if (srcInput) srcInput.value = '';
     titleInput.value = buildTitle(p.type, p.title);
     titleTouched = false;
     updatePreview();
@@ -293,8 +302,8 @@
     targetInput.value = (s.target_count ?? '') === '' ? '' : s.target_count;
     unitInput.value = s.target_unit || (TYPE_DEFAULTS[s.task_type]?.unit) || 'تست';
     ensureSelectValue(durInput, s.duration_min ?? CFG.defaultDuration);
-    prioInput.value = (s.priority && s.priority !== 'normal') ? s.priority : '';
-    if (srcInput && s.source) srcInput.value = s.source;
+    if (prioInput) prioInput.value = (s.priority && s.priority !== 'normal') ? s.priority : '';
+    if (srcInput) srcInput.value = '';
     if (!titleTouched) titleInput.value = buildTitle(s.task_type || 'study');
     updatePreview();
     return true;
@@ -347,7 +356,7 @@
     targetInput.value = t.target_count===''?'':t.target_count;
     unitInput.value = t.target_unit || 'تست';
     ensureSelectValue(durInput, t.duration_min===''?'':t.duration_min);
-    prioInput.value = t.priority || PRIO;
+    if (prioInput) prioInput.value = t.priority || PRIO;
     setSubject(t.subject_id || '');
     setType(t.task_type, false);
     document.getElementById('taskModalTitle').textContent = 'ویرایش تسک';
@@ -368,7 +377,7 @@
     if (!learn) payload._no_learn = 1;
     setStatus('saving','در حال کپی…');
     const d = await api(window.API_TASKS, { method:'POST', body: payload });
-    cellTasks(cell).insertAdjacentHTML('beforeend', pillHTML(d.task));
+    insertTaskIntoCell(d.task, cell);
     setStatus('saved','ذخیره شد');
     recalc();
     return d.task;
@@ -387,7 +396,7 @@
     setStatus('saving','در حال جابه‌جایی…');
     const d = await api(window.API_TASKS, { method:'POST', body:{ action:'move', id, day_index:cell.dataset.day, unit_index:cell.dataset.unit } });
     document.querySelector(`.task-pill[data-id="${id}"]`)?.remove();
-    cellTasks(cell).insertAdjacentHTML('beforeend', pillHTML(d.task));
+    insertTaskIntoCell(d.task, cell);
     setStatus('saved','جابه‌جا شد');
     recalc();
     return d.task;
@@ -452,10 +461,26 @@
     const act = btn.dataset.act; const pill = ctxPill; hideCtx();
     if (act === 'edit') openEdit(pill);
     else if (act === 'copy') setCopyMode(pill);
-    else if (act === 'duplicate') {
+    else if (act === 'copy_next_day') {
       const data = JSON.parse(pill.dataset.json);
-      try { await createInCell(data, pill.closest('.cell')); toast('تسک تکثیر شد','success',1200); }
-      catch(err){ toast(err.error||'خطا','error'); }
+      const cell = pill.closest('.cell');
+      const nextDay = parseInt(cell.dataset.day || '0', 10) + 1;
+      if (nextDay > 6) { toast('روز بعدی در این هفته وجود ندارد','info'); return; }
+      const target = findCell(nextDay, cell.dataset.unit);
+      try { await createInCell(data, target); toast('برای روز بعد کپی شد','success',1200); }
+      catch(err){ toast(err.error||'خطا در کپی','error'); }
+    }
+    else if (act === 'move_next_day') {
+      const cell = pill.closest('.cell');
+      const nextDay = parseInt(cell.dataset.day || '0', 10) + 1;
+      if (nextDay > 6) { toast('روز بعدی در این هفته وجود ندارد','info'); return; }
+      try { await moveToCell(pill.dataset.id, findCell(nextDay, cell.dataset.unit)); toast('به روز بعد منتقل شد','success',1200); }
+      catch(err){ toast(err.error||'خطا در انتقال','error'); }
+    }
+    else if (act === 'move_special') {
+      const cell = pill.closest('.cell');
+      try { await moveToCell(pill.dataset.id, findCell(cell.dataset.day, 8)); toast('به واحد ویژه منتقل شد','success',1200); }
+      catch(err){ toast(err.error||'خطا در انتقال','error'); }
     }
     else if (act === 'done') toggleDoneAdvisor(pill);
     else if (act === 'delete') deleteTask(pill);
@@ -528,6 +553,8 @@
     setType(o.dataset.type, true, true);
     const hi = document.getElementById('taskHeadIco');
     if (hi) hi.innerHTML = o.querySelector('.icon-tile')?.innerHTML || hi.innerHTML;
+    // مسیر پیشنهادی: نوع تسک → درس → فصل. اجبار نیست، فقط تمرکز را به قدم بعد می‌برد.
+    setTimeout(()=>subjChips?.querySelector('.subj-chip[data-subject]:not([data-subject=""])')?.focus(), 80);
   });
   document.getElementById('quickPresets')?.addEventListener('click', e=>{
     const b=e.target.closest('[data-preset]'); if(b) applyPreset(b.dataset.preset);
@@ -541,8 +568,13 @@
   // subject chips → set hidden select + smart refresh
   subjChips?.addEventListener('click', (e)=>{
     const chip = e.target.closest('.subj-chip'); if(!chip) return;
-    setSubject(chip.dataset.subject || '');
+    const sid = chip.dataset.subject || '';
+    setSubject(sid);
     onSubjectChange();
+    // وقتی مشاور درس را انتخاب می‌کند، انتخاب فصل بلافاصله باز می‌شود.
+    if (sid && !document.getElementById('taskId').value) {
+      setTimeout(() => chapterPickerBtn?.click(), 140);
+    }
   });
   // quick chapter buttons append/replace «فX» in the title
   chapQuick?.addEventListener('click', (e)=>{
@@ -608,7 +640,7 @@
         titleTouched = true;
         updatePreview();
         closeModal('chapterPickerModal');
-        titleInput.focus();
+        setTimeout(()=>targetInput?.focus(), 80);
       });
     });
   }
@@ -628,8 +660,8 @@
       const d = await api(window.API_TASKS, { method:'POST', body: fd });
       const t = d.task;
       if (id) document.querySelector(`.task-pill[data-id="${t.id}"]`)?.remove();
-      const cell = findCell(t.day_index, t.unit_index)?.querySelector('.cell-tasks');
-      cell?.insertAdjacentHTML('beforeend', pillHTML(t));
+      const targetCell = findCell(t.day_index, t.unit_index);
+      insertTaskIntoCell(t, targetCell);
       closeModal('taskModal');
       setStatus('saved','ذخیره شد');
       recalc();
@@ -703,6 +735,29 @@
     } catch(e){ toast(e.error||'خطا','error'); }
   });
 
+  document.getElementById('clearPlanBtn')?.addEventListener('click', async function(){
+    if(!confirm('همه تسک‌های این برنامه حذف شوند؟ این عملیات قابل بازگشت نیست.')) return;
+    try{
+      const d = await api(window.API_TASKS,{method:'POST',body:{action:'clear_plan',plan_id:planId}});
+      grid.querySelectorAll('.task-pill').forEach(p=>p.remove());
+      recalc();
+      toast(faNumLocal(d.removed||0)+' تسک حذف شد','success',1600);
+    }catch(e){ toast(e.error||'خطا در حذف برنامه','error'); }
+  });
+
+  document.getElementById('applyHistoryPlanBtn')?.addEventListener('click', async function(){
+    const sel = document.getElementById('historyPlanSelect');
+    const sourceId = sel?.value || '';
+    if(!sourceId){ toast('یک برنامه قبلی را انتخاب کنید','error'); return; }
+    const label = sel.options[sel.selectedIndex]?.textContent || 'برنامه قبلی';
+    if(!confirm('برنامه فعلی با «'+label+'» جایگزین شود؟')) return;
+    try{
+      const d = await api(window.API_TASKS,{method:'POST',body:{action:'copy_from_plan',plan_id:planId,source_plan_id:sourceId}});
+      toast(faNumLocal(d.copied||0)+' تسک جایگذاری شد. در حال بارگذاری…','success',1800);
+      setTimeout(()=>location.reload(),700);
+    }catch(e){ toast(e.error||'خطا در جایگذاری برنامه قبلی','error'); }
+  });
+
   document.getElementById('copyWeekBtn')?.addEventListener('click', async function(){
     if(!confirm('تسک‌های این هفته با کپی هفته قبل جایگزین شوند؟')) return;
     try{
@@ -736,12 +791,13 @@
 
   function recalc(){
     const all = grid.querySelectorAll('.task-pill');
-    const done = grid.querySelectorAll('.task-pill.done');
-    const total = all.length, dn = done.length;
-    const pct = total ? Math.round(dn/total*100) : 0;
-    document.getElementById('sumTotal').textContent = faNumLocal(total);
-    document.getElementById('sumDone').textContent = faNumLocal(dn);
-    document.getElementById('sumPct').textContent = faNumLocal(pct)+'٪';
+    const normalFilled = grid.querySelectorAll('.cell:not(.special) .task-pill').length;
+    const specialCount = grid.querySelectorAll('.cell.special .task-pill').length;
+    const normalCapacity = 7 * 7;
+    const pct = Math.round(Math.min(100, normalFilled / normalCapacity * 100));
+    document.getElementById('sumTotal').textContent = faNumLocal(all.length);
+    document.getElementById('sumDone').textContent = faNumLocal(normalFilled);
+    document.getElementById('sumPct').textContent = faNumLocal(specialCount);
     document.getElementById('sumBar').style.width = pct+'%';
   }
 })();

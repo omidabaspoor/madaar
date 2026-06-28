@@ -82,11 +82,11 @@
       return;
     }
     contactsEl.innerHTML = rows.map(c => `
-      <div class="chat-item ${active==c.id?'active':''}" data-id="${c.id}" data-name="${escAttr(c.full_name)}" data-sub="${escAttr(c.field||'')}">
+      <div class="chat-item ${active==c.id?'active':''}" data-id="${c.id}" data-name="${escAttr(c.full_name)}" data-sub="${escAttr(c.role_label==='chat_guest'?'مهمان چت':(c.field||''))}">
         <span class="u-ava">${esc(c.avatar || letters(c.full_name))}</span>
         <div style="flex:1;min-width:0">
           <div class="nm">${esc(c.full_name)}</div>
-          <div class="lm">${esc(c.last || 'بدون پیام')}</div>
+          <div class="lm">${c.role_label==='chat_guest'?'مهمان چت · ':''}${esc(c.last || 'بدون پیام')}</div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px">
           ${c.last_ago?`<span class="meta-time">${esc(c.last_ago)}</span>`:''}
@@ -113,7 +113,7 @@
     renderContacts();
     const item = contacts.find(c => parseInt(c.id) === active) || {};
     document.getElementById('chatName').textContent = item.full_name || 'گفتگو';
-    document.getElementById('chatSub').textContent = item.field || 'آنلاین نیست؟ پیام را بفرست، بعداً می‌بیند.';
+    document.getElementById('chatSub').textContent = item.role_label === 'chat_guest' ? 'مهمان چت' : (item.field || 'آنلاین نیست؟ پیام را بفرست، بعداً می‌بیند.');
     document.getElementById('chatAva').textContent = item.avatar || letters(item.full_name || 'م');
     form.style.display = 'flex';
     chatShell?.classList.add('has-active');
@@ -121,7 +121,7 @@
     clearAttachment();
     await loadMessages(true);
     clearInterval(pollTimer);
-    pollTimer = setInterval(()=>loadMessages(false), 3000); // لایو: هر ۳ ثانیه
+    pollTimer = setInterval(()=>loadMessages(false), 2000); // لایو: هر ۲ ثانیه
   }
 
   function fileBubbleHTML(att) {
@@ -172,6 +172,7 @@
       // تشخیص تغییر واقعی — جلوگیری از re-render بی‌مورد (لایو بدون چشمک)
       const newLastId = items.length ? parseInt(items[items.length-1].id) : 0;
       const newCount = items.length;
+      const prevLastId = lastMsgId;
       if (!scroll && newLastId === lastMsgId && newCount === lastMsgCount) return; // بدون تغییر → هیچ‌کاری نکن
       lastMsgId = newLastId;
       lastMsgCount = newCount;
@@ -185,14 +186,15 @@
         const sep = m.date !== lastDate ? `<div class="chat-day-sep">${esc(m.date)}</div>` : '';
         lastDate = m.date;
         const body = m.body ? `<div class="msg-text">${esc(m.body).replace(/\n/g,'<br>')}</div>` : '';
-        return `${sep}<div class="bubble ${m.mine?'me':'them'}" data-id="${m.id}">${mediaHTML(m.attachment)}${body}<span class="time">${m.time}</span></div>`;
+        const receipt = m.mine ? `<span class="msg-receipt ${m.read ? 'seen' : 'sent'}" title="${m.read ? 'دیده شده' : 'ارسال شده، هنوز دیده نشده'}">${m.read ? '✓✓' : '✓'}</span>` : '';
+        return `${sep}<div class="bubble ${m.mine?'me':'them'}" data-id="${m.id}">${mediaHTML(m.attachment)}${body}<span class="time">${m.time} ${receipt}</span></div>`;
       }).join('');
       if (scroll || atBottom) bodyEl.scrollTop = bodyEl.scrollHeight;
 
       // اگه پیام جدید از طرف مقابل اومد → صدای نوتیف
       if (!scroll && items.length > 0) {
         const lastMsg = items[items.length-1];
-        if (!lastMsg.mine && newLastId > (lastMsgId - 1)) {
+        if (!lastMsg.mine && newLastId > prevLastId) {
           playMsgSound();
         }
       }
@@ -382,6 +384,34 @@
   });
   searchInput?.addEventListener('input', renderContacts);
 
+  // Paste image directly like a native messenger
+  text?.addEventListener('paste', (e) => {
+    const files = [...(e.clipboardData?.files || [])];
+    const img = files.find(f => f.type && f.type.startsWith('image/'));
+    if (img && validateImage(img)) {
+      e.preventDefault();
+      setAttachment(img, 'image');
+      toast('عکس آماده ارسال است','success',1200);
+    }
+  });
+
+  // Drag & drop files into chat on desktop
+  ['dragenter','dragover'].forEach(ev => bodyEl?.addEventListener(ev, e => { e.preventDefault(); bodyEl.classList.add('chat-drop-ready'); }));
+  ['dragleave','drop'].forEach(ev => bodyEl?.addEventListener(ev, e => { e.preventDefault(); bodyEl.classList.remove('chat-drop-ready'); }));
+  bodyEl?.addEventListener('drop', e => {
+    const file = e.dataTransfer?.files?.[0];
+    if (!file) return;
+    if (file.type.startsWith('image/') && validateImage(file)) setAttachment(file, 'image');
+    else if (validateFile(file)) setAttachment(file, 'file');
+  });
+
+  text?.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
   form.addEventListener('submit', async e => {
     e.preventDefault();
     if (!active) return;
@@ -420,7 +450,7 @@
   });
 
   loadContacts();
-  setInterval(loadContacts, 8000); // لیست مخاطبین هم هر ۸ ثانیه آپدیت
+  setInterval(loadContacts, 2000); // لیست مخاطبین هم هر ۲ ثانیه آپدیت
 
   // ======== Custom Voice Player ========
   function drawVoiceWave(canvas, progress = 0) {

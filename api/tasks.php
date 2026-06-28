@@ -1,7 +1,7 @@
 <?php
 /**
  * API تسک‌ها — CRUD + toggle
- * actions: list, create, update, delete, move, seed_special, toggle, feedback, publish, copy_week, clear_day
+ * actions: list, create, update, delete, move, seed_special, toggle, feedback, publish, copy_week, copy_from_plan, clear_day, clear_plan
  */
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/models.php';
@@ -88,6 +88,37 @@ function seed_special_tasks(int $planId, int $readingMin = 45, int $examMin = 50
     return $added;
 }
 
+
+function normalize_plan_unit_capacity(int $planId): void {
+    try {
+        // واحدهای عادی: از هر روز/واحد فقط یک تسک باقی بماند.
+        db()->prepare("DELETE t1 FROM tasks t1
+            JOIN tasks t2 ON t1.plan_id=t2.plan_id
+             AND t1.day_index=t2.day_index
+             AND t1.unit_index=t2.unit_index
+             AND t1.unit_index<>8
+             AND t1.id>t2.id
+            WHERE t1.plan_id=?")->execute([$planId]);
+    } catch (Throwable $e) {}
+
+    // واحد ویژه: حداکثر سه تسک در هر روز؛ سازگار با MySQL 5.7 و 8.
+    try {
+        $st = db()->prepare('SELECT id, day_index FROM tasks WHERE plan_id=? AND unit_index=8 ORDER BY day_index, sort_order, id');
+        $st->execute([$planId]);
+        $seen = [];
+        $deleteIds = [];
+        foreach ($st->fetchAll() as $r) {
+            $d = (int)$r['day_index'];
+            $seen[$d] = ($seen[$d] ?? 0) + 1;
+            if ($seen[$d] > 3) $deleteIds[] = (int)$r['id'];
+        }
+        if ($deleteIds) {
+            $ph = implode(',', array_fill(0, count($deleteIds), '?'));
+            db()->prepare("DELETE FROM tasks WHERE id IN ($ph)")->execute($deleteIds);
+        }
+    } catch (Throwable $e) {}
+}
+
 function ensure_extended_task_types(): bool {
     static $checked = null;
     if ($checked !== null) return $checked;
@@ -145,6 +176,15 @@ case 'create': {
     $desc   = trim((string)($in['description'] ?? '')) ?: null;
     $source = trim((string)($in['source'] ?? '')) ?: null;
     $prio   = in_array($in['priority'] ?? '', ['low','normal','high'], true) ? $in['priority'] : 'normal';
+
+    if ($unit !== 8) {
+        // در هر روز/واحد عادی فقط یک تسک مجاز است؛ تسک قبلی همان خانه جایگزین می‌شود.
+        db()->prepare('DELETE FROM tasks WHERE plan_id=? AND day_index=? AND unit_index=?')->execute([$planId,$day,$unit]);
+    } else {
+        $cntSpecial = db()->prepare('SELECT COUNT(*) FROM tasks WHERE plan_id=? AND day_index=? AND unit_index=8');
+        $cntSpecial->execute([$planId,$day]);
+        if ((int)$cntSpecial->fetchColumn() >= 3) json_out(['ok'=>false,'error'=>'در واحد ویژه هر روز حداکثر سه تسک قابل ثبت است'],422);
+    }
 
     $sortq = db()->prepare('SELECT COALESCE(MAX(sort_order),0)+1 FROM tasks WHERE plan_id=? AND day_index=? AND unit_index=?');
     $sortq->execute([$planId,$day,$unit]); $sort=(int)$sortq->fetchColumn();
@@ -227,6 +267,17 @@ case 'clear_unit': {
     json_out(['ok'=>true,'removed'=>$del->rowCount()]);
 }
 
+
+/* ============ حذف کل تسک‌های برنامه ============ */
+case 'clear_plan': {
+    if (!in_array($role, ['advisor','admin'], true)) json_out(['ok'=>false,'error'=>'دسترسی ندارید'],403);
+    $planId=(int)($in['plan_id']??0);
+    if (!plan_owned_by_advisor($planId,$me,$role)) json_out(['ok'=>false,'error'=>'برنامه نامعتبر'],403);
+    $del = db()->prepare('DELETE FROM tasks WHERE plan_id=?');
+    $del->execute([$planId]);
+    json_out(['ok'=>true,'removed'=>$del->rowCount()]);
+}
+
 /* ============ پیشنهاد هوشمند برای پرکردن خودکار خانه ============ */
 case 'suggest': {
     if (!in_array($role, ['advisor','admin'], true)) json_out(['ok'=>false,'error'=>'دسترسی ندارید'],403);
@@ -274,6 +325,36 @@ case 'copy_week': {
         $ins = db()->prepare('INSERT INTO tasks (plan_id,student_id,subject_id,title,description,task_type,day_index,unit_index,target_count,target_unit,duration_min,priority,sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
         foreach ($rows as $r) { $ins->execute([$planId,$plan['student_id'],$r['subject_id'],$r['title'],$r['description'],$r['task_type'],$r['day_index'],$r['unit_index'],$r['target_count'],$r['target_unit'],$r['duration_min'],$r['priority'],$r['sort_order']]); $n++; }
     }
+    normalize_plan_unit_capacity($planId);
+    json_out(['ok'=>true,'copied'=>$n]);
+}
+
+
+/* ============ جایگذاری از یکی از برنامه‌های قبلی همین دانش‌آموز ============ */
+case 'copy_from_plan': {
+    if (!in_array($role, ['advisor','admin'], true)) json_out(['ok'=>false,'error'=>'دسترسی ندارید'],403);
+    $planId=(int)($in['plan_id']??0); $sourcePlanId=(int)($in['source_plan_id']??0);
+    if (!plan_owned_by_advisor($planId,$me,$role)) json_out(['ok'=>false,'error'=>'برنامه مقصد نامعتبر است'],403);
+    if (!plan_owned_by_advisor($sourcePlanId,$me,$role)) json_out(['ok'=>false,'error'=>'برنامه مبدا نامعتبر است'],403);
+    $p = db()->prepare('SELECT * FROM plans WHERE id=?'); $p->execute([$planId]); $dest=$p->fetch();
+    $p->execute([$sourcePlanId]); $src=$p->fetch();
+    if (!$dest || !$src || (int)$dest['student_id'] !== (int)$src['student_id']) json_out(['ok'=>false,'error'=>'برنامه مبدا برای این دانش‌آموز نیست'],422);
+    db()->beginTransaction();
+    try {
+        db()->prepare('DELETE FROM tasks WHERE plan_id=?')->execute([$planId]);
+        $rows = plan_tasks($sourcePlanId); $n=0;
+        $hasSource = ensure_source_column();
+        if ($hasSource) {
+            $ins = db()->prepare('INSERT INTO tasks (plan_id,student_id,subject_id,title,description,source,task_type,day_index,unit_index,target_count,target_unit,duration_min,priority,sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+            foreach ($rows as $r) { $ins->execute([$planId,$dest['student_id'],$r['subject_id'],$r['title'],$r['description'],$r['source']??null,$r['task_type'],$r['day_index'],$r['unit_index'],$r['target_count'],$r['target_unit'],$r['duration_min'],$r['priority'],$r['sort_order']]); $n++; }
+        } else {
+            $ins = db()->prepare('INSERT INTO tasks (plan_id,student_id,subject_id,title,description,task_type,day_index,unit_index,target_count,target_unit,duration_min,priority,sort_order) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
+            foreach ($rows as $r) { $ins->execute([$planId,$dest['student_id'],$r['subject_id'],$r['title'],$r['description'],$r['task_type'],$r['day_index'],$r['unit_index'],$r['target_count'],$r['target_unit'],$r['duration_min'],$r['priority'],$r['sort_order']]); $n++; }
+        }
+        normalize_plan_unit_capacity($planId);
+        db()->prepare('UPDATE plans SET status="draft" WHERE id=?')->execute([$planId]);
+        db()->commit();
+    } catch (Throwable $e) { db()->rollBack(); throw $e; }
     json_out(['ok'=>true,'copied'=>$n]);
 }
 
@@ -306,6 +387,7 @@ case 'copy_to_student': {
                 $n++;
             }
         }
+        normalize_plan_unit_capacity((int)$targetPlan['id']);
         db()->prepare('UPDATE plans SET title=?, status="draft", note=? WHERE id=?')->execute([$src['title'], $src['note'], $targetPlan['id']]);
         db()->commit();
     } catch (Throwable $e) { db()->rollBack(); throw $e; }
@@ -319,6 +401,13 @@ case 'move': {
     if (!$t || !plan_owned_by_advisor((int)$t['plan_id'],$me,$role)) json_out(['ok'=>false,'error'=>'تسک یافت نشد'],404);
     $day = clamp_int($in['day_index'] ?? $t['day_index'], 0, 6);
     $unit = clamp_int($in['unit_index'] ?? $t['unit_index'], 1, 8);
+    if ($unit !== 8) {
+        db()->prepare('DELETE FROM tasks WHERE plan_id=? AND day_index=? AND unit_index=? AND id<>?')->execute([$t['plan_id'],$day,$unit,$id]);
+    } else {
+        $cntSpecial = db()->prepare('SELECT COUNT(*) FROM tasks WHERE plan_id=? AND day_index=? AND unit_index=8 AND id<>?');
+        $cntSpecial->execute([$t['plan_id'],$day,$id]);
+        if ((int)$cntSpecial->fetchColumn() >= 3) json_out(['ok'=>false,'error'=>'در واحد ویژه هر روز حداکثر سه تسک قابل ثبت است'],422);
+    }
     $sortq = db()->prepare('SELECT COALESCE(MAX(sort_order),0)+1 FROM tasks WHERE plan_id=? AND day_index=? AND unit_index=?');
     $sortq->execute([$t['plan_id'],$day,$unit]); $sort=(int)$sortq->fetchColumn();
     db()->prepare('UPDATE tasks SET day_index=?, unit_index=?, sort_order=? WHERE id=?')->execute([$day,$unit,$sort,$id]);
@@ -332,6 +421,7 @@ case 'seed_special': {
     if (!plan_owned_by_advisor($planId,$me,$role)) json_out(['ok'=>false,'error'=>'برنامه نامعتبر'],403);
     $cfg = advisor_settings($me);
     $added = seed_special_tasks($planId, (int)$cfg['special_reading_min'], (int)$cfg['special_exam_min']);
+    normalize_plan_unit_capacity($planId);
     json_out(['ok'=>true,'added'=>$added]);
 }
 

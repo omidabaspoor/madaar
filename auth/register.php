@@ -88,12 +88,12 @@ page_head('ثبت‌نام', '', ['auth.css']);
         <div class="field">
           <label for="full_name">نام و نام خانوادگی</label>
           <div class="input-group"><span class="ig-icon"><?= icon('user',18) ?></span>
-          <input class="input" id="full_name" name="full_name" value="<?= e($old['full_name']) ?>" placeholder="مثلاً علی رضایی" required></div>
+          <input class="input" id="full_name" name="full_name" value="<?= e($old['full_name']) ?>" placeholder="مثلاً محمد کریمی" required></div>
         </div>
         <div class="field">
           <label for="username">نام کاربری (انگلیسی)</label>
           <div class="input-group"><span class="ig-icon"><?= icon('login',18) ?></span>
-          <input class="input" id="username" name="username" dir="ltr" value="<?= e($old['username']) ?>" placeholder="ali_rezaei" autocomplete="username" required></div>
+          <input class="input" id="username" name="username" dir="ltr" value="<?= e($old['username']) ?>" placeholder="mohammad_karimi" autocomplete="username" required></div>
         </div>
         <div class="grid gap-3" style="grid-template-columns:1fr 1fr">
           <div class="field">
