@@ -1,436 +1,217 @@
 <?php
 /**
- * صفحه‌ی اتاق جلسه آنلاین - با Error Handling کامل
+ * مَدار — اتاق کلاس آنلاین سینک‌شده با UI ارسالی کارفرما
+ * Media: رایگان و سریع با WebRTC P2P داخلی + signaling روی PHP/MySQL
  */
+declare(strict_types=1);
+
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/online_sessions.php';
 require_once __DIR__ . '/includes/helpers.php';
-require_once __DIR__ . '/includes/icons.php'; // ⬅️ bug fix: icon() function was missing
+require_once __DIR__ . '/includes/icons.php';
 
-// ایمنی: اگر icon() هنوز تعریف نشده، fallback ساده
-if (!function_exists('icon')) {
-    function icon(string $name, int $size = 18): string {
-        return '<span style="display:inline-block;width:' . $size . 'px;height:' . $size . 'px;text-align:center;font-size:' . round($size*0.7) . 'px">●</span>';
-    }
-}
+boot_session();
 
-// متغیرهای مورد نیاز برای error page
-$errorMode = false;
 $errorTitle = '';
 $errorMessage = '';
-$redirectUrl = '';
-$redirectText = 'بازگشت';
+$errorLink = 'auth/login.php';
+$errorLinkText = 'ورود به حساب';
+$session = null;
+$participants = [];
+$u = current_user();
 
 try {
-    // === شروع session ===
-    if (session_status() !== PHP_SESSION_ACTIVE) {
-        boot_session();
-    }
-
-    // === بررسی لاگین ===
-    if (!is_logged_in()) {
+    if (!$u) {
         http_response_code(401);
-        $errorMode = true;
-        $errorTitle = 'لطفاً وارد شوید';
-        $errorMessage = 'برای ورود به اتاق جلسه باید ابتدا وارد حساب کاربری خود شوید.';
-        $redirectUrl = url('auth/login.php');
-        $redirectText = 'ورود به حساب';
+        throw new RuntimeException('برای ورود به اتاق کلاس باید ابتدا وارد حساب کاربری خود شوید.');
     }
 
-    if (!$errorMode) {
-        // === ساخت جداول (اگر نیست) ===
-        $schemaOk = online_sessions_schema_ready();
-        if (!$schemaOk) {
-            error_log('Online rooms: schema creation failed');
-            throw new RuntimeException('جداول جلسات آنلاین در پایگاه داده ایجاد نشده‌اند. لطفاً فایل install.php را اجرا کنید.');
-        }
-
-        // === دریافت اطلاعات جلسه ===
-        $sessionId = (int)($_GET['session'] ?? 0);
-        if ($sessionId <= 0) {
-            http_response_code(400);
-            $errorMode = true;
-            $errorTitle = 'شناسه‌ی جلسه نامعتبر';
-            $errorMessage = 'هیچ جلسه‌ای انتخاب نشده است.';
-        } else {
-            $session = online_session_get($sessionId);
-
-            if (!$session) {
-                http_response_code(404);
-                $errorMode = true;
-                $u = current_user();
-                $errorTitle = 'جلسه یافت نشد';
-                $errorMessage = 'این جلسه وجود ندارد، حذف شده یا شناسه‌ی آن اشتباه است.';
-                $redirectUrl = url(($u['role'] ?? 'student') === 'student' ? 'student/online_sessions.php' : 'admin/online_sessions.php');
-                $redirectText = 'بازگشت به لیست جلسات';
-            } else {
-                $u = current_user();
-                $role = $u['role'] ?? 'student';
-                $isHost = ((int)$session['advisor_id'] === (int)$u['id']) || $role === 'admin';
-
-                // === بررسی دسترسی ===
-                $accessDenied = false;
-                if ($role === 'student' && !online_session_student_can_access($sessionId, (int)$u['id'])) {
-                    $accessDenied = true;
-                    $redirectUrl = url('student/online_sessions.php');
-                    $errorMessage = 'شما به این جلسه دعوت نشده‌اید. اگر فکر می‌کنید اشتباه است، با مشاور خود تماس بگیرید.';
-                } elseif ($role === 'advisor' && !$isHost) {
-                    $accessDenied = true;
-                    $redirectUrl = url('admin/online_sessions.php');
-                    $errorMessage = 'فقط مشاورِ سازنده‌ی جلسه یا مدیر ارشد می‌تواند وارد این اتاق شود.';
-                }
-                if ($accessDenied) {
-                    http_response_code(403);
-                    $errorMode = true;
-                    $errorTitle = 'دسترسی ندارید';
-                    $redirectText = 'بازگشت';
-                } else {
-                    // === همه چیز اوکی - رندر اتاق ===
-                    $participants = online_session_participants($sessionId);
-                    // displayName بدون emoji (Jitsi URL params حساس به JSON هستند)
-// فقط متن ساده ارسال می‌شود
-$displayName = $u['full_name']; // ساده - بدون ایموجی
-                    $pageTitle = $session['title'];
-                }
-            }
-        }
+    online_sessions_schema_ready();
+    $sessionId = (int)($_GET['session'] ?? 0);
+    if ($sessionId <= 0) {
+        http_response_code(400);
+        $errorLink = (($u['role'] ?? '') === 'student') ? 'student/online_sessions.php' : 'admin/online_sessions.php';
+        $errorLinkText = 'بازگشت به جلسات آنلاین';
+        throw new RuntimeException('شناسه کلاس آنلاین نامعتبر است.');
     }
+
+    $session = online_session_get($sessionId);
+    if (!$session) {
+        http_response_code(404);
+        $errorLink = (($u['role'] ?? '') === 'student') ? 'student/online_sessions.php' : 'admin/online_sessions.php';
+        $errorLinkText = 'بازگشت به جلسات آنلاین';
+        throw new RuntimeException('این کلاس آنلاین وجود ندارد یا حذف شده است.');
+    }
+
+    $role = (string)($u['role'] ?? 'student');
+    $isHost = online_session_is_host($session, (int)$u['id'], $role);
+    if ($role === 'student' && !online_session_student_can_access($sessionId, (int)$u['id'])) {
+        http_response_code(403);
+        $errorLink = 'student/online_sessions.php';
+        $errorLinkText = 'بازگشت به کلاس‌های من';
+        throw new RuntimeException('شما به این کلاس دعوت نشده‌اید.');
+    }
+    if ($role === 'advisor' && !$isHost) {
+        http_response_code(403);
+        $errorLink = 'admin/online_sessions.php';
+        $errorLinkText = 'بازگشت به جلسات آنلاین';
+        throw new RuntimeException('فقط مشاور سازنده یا مدیر ارشد می‌تواند وارد این اتاق شود.');
+    }
+
+    if (in_array((string)$session['status'], ['ended','cancelled'], true)) {
+        http_response_code(410);
+        $errorLink = $role === 'student' ? 'student/online_sessions.php' : 'admin/online_sessions.php';
+        $errorLinkText = 'بازگشت به جلسات آنلاین';
+        throw new RuntimeException($session['status'] === 'cancelled' ? 'این کلاس لغو شده است.' : 'این کلاس پایان یافته است.');
+    }
+
+    $participants = online_session_participants($sessionId);
+    $effectivePermissions = online_permission_effective_state($session, (int)$u['id'], $role);
 } catch (Throwable $e) {
-    error_log('online_room.php error: ' . $e->getMessage() . ' | Trace: ' . $e->getTraceAsString());
-    http_response_code(500);
-    $errorMode = true;
-    $errorTitle = 'خطا در بارگذاری اتاق';
-    $errorMessage = APP_ENV === 'development'
-        ? $e->getMessage()
-        : 'متأسفانه در اتصال به اتاق جلسه خطایی رخ داد. لطفاً دوباره تلاش کنید.';
-    if (!isset($redirectUrl) || !$redirectUrl) {
-        $role = current_user()['role'] ?? 'student';
-        $redirectUrl = url($role === 'student' ? 'student/online_sessions.php' : 'admin/online_sessions.php');
-    }
+    $errorTitle = 'ورود به کلاس ممکن نیست';
+    $errorMessage = $e->getMessage();
 }
 
-// === اگر خطا داریم، صفحه‌ی خطا رو نشون بده ===
-if ($errorMode) {
-    ?>
-<!DOCTYPE html>
-<html lang="fa" dir="rtl">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title><?= e($errorTitle) ?> · مَدار</title>
-<link rel="stylesheet" href="<?= asset('css/app.css') ?>">
-<style>
-body{display:grid;place-items:center;min-height:100vh;background:#0c1512;color:#eef2ee;font-family:'Vazirmatn',sans-serif;padding:20px;margin:0}
-.err-box{background:rgba(217,116,116,.12);border:1px solid rgba(217,116,116,.4);border-radius:18px;padding:36px 28px;max-width:480px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.4)}
-.err-box h1{color:#ff9a9a;font-size:1.3rem;margin:0 0 14px;font-weight:900;display:flex;align-items:center;justify-content:center;gap:10px}
-.err-box p{color:#b9c4bd;font-size:.94rem;line-height:1.85;margin:0 0 24px}
-.err-box a,.err-box button{display:inline-block;padding:12px 28px;background:linear-gradient(135deg,#e0c595,#b2945f);color:#1a1206;border-radius:12px;text-decoration:none;font-weight:900;border:none;font-family:inherit;font-size:.94rem;cursor:pointer;transition:.2s}
-.err-box a:hover,.err-box button:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(178,148,95,.3)}
-.err-dev{font-family:monospace;font-size:.78rem;background:rgba(0,0,0,.4);padding:10px;border-radius:8px;color:#fca5a5;text-align:right;direction:ltr;margin-top:14px;overflow-x:auto;max-height:140px;overflow-y:auto}
-</style>
-</head>
-<body>
-<div class="err-box">
-  <h1><?= icon('alert-circle',32) ?> <?= e($errorTitle) ?></h1>
-  <p><?= e($errorMessage) ?></p>
-  <?php if (APP_ENV === 'development' && !empty($errorMessage) && strlen($errorMessage) > 30): ?>
-    <div class="err-dev"><?= e($errorMessage) ?></div>
-  <?php endif; ?>
-  <a href="<?= e($redirectUrl) ?>"><?= icon('arrow-right',15) ?> <?= e($redirectText) ?></a>
-</div>
-</body>
-</html>
-    <?php
-    exit;
-}
+if ($errorMessage):
+?><!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title><?= e($errorTitle) ?> · مَدار</title><link rel="stylesheet" href="<?= asset('css/app.css') ?>"><style>body{min-height:100vh;display:grid;place-items:center;background:#0b0d10;color:#f0f2f5;font-family:Vazirmatn,Tahoma,sans-serif;padding:20px}.box{width:min(520px,100%);background:#12151a;border:1px solid rgba(255,255,255,.08);border-radius:24px;padding:28px;text-align:center;box-shadow:0 24px 80px rgba(0,0,0,.4)}.box h1{font-size:1.2rem;color:#ff9a9a}.box p{color:#a0a8b4;line-height:1.9}.box a{display:inline-flex;align-items:center;gap:8px;margin-top:12px;background:linear-gradient(135deg,#6ee7a0,#48a86c);color:#0b0d10;border-radius:12px;padding:11px 18px;text-decoration:none;font-weight:900}</style></head><body><div class="box"><h1><?= e($errorTitle) ?></h1><p><?= e($errorMessage) ?></p><a href="<?= url($errorLink) ?>"><?= icon('arrow-right',16) ?> <?= e($errorLinkText) ?></a></div></body></html><?php exit; endif;
 
-// === تنظیمات Jitsi ===
-// می‌توانید این را در config.php یا admin/online_sessions.php تنظیم کنید
-$jitsiServer = defined('JITSI_SERVER_URL') ? JITSI_SERVER_URL : 'https://meet.jit.si';
-$useFallback = false; // اگر Jitsi در دسترس نیست، true کنید
-
-// === تنظیمات تماس ===
-// پیش‌فرض جدید: کاملاً داخلی و رایگان با WebRTC P2P.
-// دلیل: meet.jit.si برای اتاق‌های عمومی گاهی صفحه‌ی "I'm the host"/login نشان می‌دهد و برای اینترنت ایران پایدار نیست.
-// اگر روزی خواستید Jitsi را دستی تست کنید: ?jitsi=1
-$useP2P = empty($_GET['jitsi']);
-$jitsiDisabled = $useP2P || isset($_GET['no_jitsi']);
-
-// === رندر اتاق ===
+$sessionId = (int)$session['id'];
+$role = (string)$u['role'];
+$isHost = online_session_is_host($session, (int)$u['id'], $role);
+$advisorName = (string)($session['advisor_name'] ?? 'مشاور');
+$advisorLetters = mb_substr($advisorName, 0, 1) ?: 'م';
+$participantCount = count($participants) + 1;
+$exitUrl = $role === 'student' ? 'student/online_sessions.php' : 'admin/online_sessions.php';
+$participantsPayload = array_map(fn($p) => [
+    'id' => (int)$p['student_id'],
+    'name' => (string)$p['full_name'],
+    'username' => (string)($p['username'] ?? ''),
+    'avatar' => mb_substr((string)$p['full_name'], 0, 1) ?: 'د',
+], $participants);
 ?>
 <!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<title><?= e($session['title']) ?> · مَدار</title>
-<meta name="theme-color" content="#0c1512">
-<link rel="stylesheet" href="<?= asset('css/app.css') ?>">
-<link rel="stylesheet" href="<?= asset('css/online_room.css') ?>">
-<link rel="stylesheet" href="<?= asset('css/online_p2p.css') ?>">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title><?= e($session['title']) ?> · کلاس آنلاین مَدار</title>
+<meta name="theme-color" content="#0b0d10">
 <meta name="csrf-token" content="<?= e(csrf_token()) ?>">
+<link rel="stylesheet" href="<?= asset('css/online_class.css') ?>">
 </head>
 <body>
+<header class="hdr">
+  <div class="hdr-r">
+    <a class="logo" href="<?= url($exitUrl) ?>" style="text-decoration:none">
+      <div class="logo-i"><svg viewBox="0 0 24 24" fill="none" stroke="#0b0d10" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></div>
+      <span class="logo-t">مَدار</span>
+    </a>
+    <div class="chip"><div class="dot-lv"></div><span class="tmr" id="tmr">00:00:00</span></div>
+  </div>
+  <div class="hdr-c"><span class="stitle"><?= e($session['title']) ?></span><span class="cnt" id="cnt"><?= fa_num($participantCount) ?> نفر</span></div>
+  <div class="hdr-l">
+    <button class="hb" id="peopleBtn" type="button" title="اعضا"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></button>
+    <button class="hb" id="chatBtn" type="button" title="چت"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg><span class="bdg" id="cBdg">0</span></button>
+    <button class="lv-btn" id="leaveTop" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg><span class="lt">خروج</span></button>
+  </div>
+</header>
 
-<!-- Loading -->
-<div class="or-loading" id="or-loading">
-  <div>
-    <div class="or-spk"></div>
-    <h2>در حال اتصال به اتاق جلسه...</h2>
-    <p>لطفاً صبر کنید. اگر مرورگر اجازه‌ی دسترسی به میکروفون و دوربین خواست، اجازه دهید.</p>
-    <p style="font-size:.78rem;margin-top:14px;color:#7f8d86">
-      کلاس در حال آماده‌سازی است. لطفاً چند لحظه صبر کنید.
-    </p>
+<div class="main">
+  <aside class="sb" id="sb">
+    <div class="sb-h">
+      <div class="sb-tabs">
+        <button class="sb-t on" id="tCh" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>چت</button>
+        <button class="sb-t" id="tPt" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>اعضا</button>
+      </div>
+      <button class="sb-x" id="closeSide" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="sb-bd">
+      <div class="ch-p on" id="chPn">
+        <div class="ch-ms" id="chMs"></div>
+        <div class="ch-iw"><div class="ch-ib" id="chatBox"><textarea class="ch-in" id="chIn" placeholder="پیام..." rows="1"></textarea><button class="ch-s" id="sendChat" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg></button></div></div>
+      </div>
+      <div class="pt-p" id="ptPn">
+        <div class="pt-reqs" id="permReqs"></div>
+        <div class="pt-l" id="ptList"></div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="va">
+    <div class="vg">
+      <div class="mv" id="mV">
+        <div class="vc adv-c" id="advC" style="flex:1">
+          <div class="raw-watermark">مسیر داخلی رایگان مَدار</div>
+          <div class="vbg" id="advBg"><div class="vav" style="background:linear-gradient(135deg,var(--g1),var(--g3))"><?= e($advisorLetters) ?><div class="sp-rng"></div></div><span class="vav-nm"><?= e($advisorName) ?></span></div>
+          <div class="vbot"><div class="vlbl"><span class="vrl adv">مشاور</span><span id="advNameLbl"><?= e($advisorName) ?></span></div><div class="abrs" id="advBars"><i></i><i></i><i></i></div></div>
+        </div>
+        <div class="rh" id="rH"></div>
+        <div class="vc scr-c" id="scrC" style="flex:1">
+          <div class="scr-bdg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>اشتراک صفحه</div>
+          <div class="vbg" id="screenBg" style="background:#080808"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--g1)" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg><span class="screen-empty">صفحه مشاور</span></div>
+        </div>
+      </div>
+      <div class="rv" id="rV"></div>
+      <div class="sr" id="sR"></div>
+    </div>
+
+    <div class="bb">
+      <button class="tb" id="micTB" type="button" title="میکروفون"><svg id="micOn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg><svg id="micOff" style="display:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12"/><path d="M15 9.34V4a3 3 0 0 0-5.94-.6"/></svg><span class="tp">میکروفون</span></button>
+      <button class="tb" id="camTB" type="button" title="دوربین"><svg id="camOn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg><svg id="camOff" style="display:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M15.28 15.28A2 2 0 0 1 14 16H4a2 2 0 0 1-2-2V6c0-.5.18-.96.49-1.31"/><path d="M6 2h8a2 2 0 0 1 2 2v4l6-3v10"/></svg><span class="tp">دوربین</span></button>
+      <div class="tdv"></div>
+      <button class="tb" id="scrTB" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg><span class="tp">اشتراک صفحه</span></button>
+      <button class="tb" id="wbTB" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg><span class="tp">تخته</span></button>
+      <div class="tdv"></div>
+      <button class="tb" id="handTB" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 12.5V10a2 2 0 0 0-2-2 2 2 0 0 0-2 2"/><path d="M14 11V9a2 2 0 0 0-2-2 2 2 0 0 0-2 2v1"/><path d="M10 10.5V5a2 2 0 0 0-2-2 2 2 0 0 0-2 2v9"/><path d="M18 12.5a2 2 0 0 1 2 2c0 5-2 7-8 7s-6-2-8-5l-1.5-2.5"/></svg><span class="tp">دست</span></button>
+      <button class="tb" id="openChatBottom" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg><span class="tp">چت</span></button>
+      <?php if ($isHost): ?><div class="tdv"></div><button class="tb" id="muteAllTB" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12"/><path d="M15 9.34V4a3 3 0 0 0-5.94-.6"/></svg><span class="tp">بی‌صدا</span></button><?php endif; ?>
+    </div>
   </div>
 </div>
 
-<div class="or-room side-collapsed" id="or-room" style="display:none">
-  <!-- Top Bar -->
-  <div class="or-topbar">
-    <div class="or-topbar-left">
-      <span class="or-live-dot"></span>
-      <span class="or-room-name" title="<?= e($session['title']) ?>">
-        <?= icon('video',15) ?>
-        <?= e($session['title']) ?>
-      </span>
-      <?php if ($isHost): ?>
-        <span class="badge" style="background:var(--gold-glass);color:var(--gold-light);font-weight:900;font-size:.7rem">👑 میزبان</span>
-      <?php endif; ?>
-      <span class="or-timer"><span id="or-timer-text">00:00</span></span>
-    </div>
-    <div class="or-topbar-right">
-      <?php if (!empty($_GET['debug_provider'])): ?>
-      <button class="or-btn-icon" id="or-mode-btn" title="مسیر جایگزین کلاس"><?= icon('video',18) ?></button>
-      <?php endif; ?>
-      <button class="or-btn-icon" id="or-people-btn" title="شرکت‌کنندگان"><?= icon('users',18) ?></button>
-      <button class="or-btn-icon" id="or-chat-btn" title="چت"><?= icon('message',18) ?></button>
-      <button class="or-btn-icon" id="or-board-btn" title="تخته"><?= icon('edit',18) ?></button>
-      <?php if ($isHost): ?><button class="or-btn-icon" id="or-settings-btn" title="مدیریت کلاس"><?= icon('sliders',18) ?></button><?php endif; ?>
-      <button class="or-btn-icon" id="or-side-toggle" title="باز/بستن پنل"><?= icon('sidebar',18) ?></button>
-      <button class="or-btn-icon" id="or-end-btn" title="<?= $isHost ? 'پایان جلسه' : 'خروج' ?>" style="background:rgba(217,116,116,.16);color:#ff9a9a;border-color:rgba(217,116,116,.3)">
-        <?= icon('phone-off',18) ?>
-      </button>
-    </div>
+<!-- Whiteboard -->
+<div class="wb-ov" id="wbOv"></div>
+<div class="wb-pn sz-l" id="wbPn">
+  <div class="wb-rs" id="wbRs"></div>
+  <div class="wb-hd">
+    <div class="wb-ttl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg>تخته</div>
+    <button class="wt wb-size-btn" id="wbSizeMinus" type="button" title="کوچک کردن تخته"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+    <button class="wt wb-size-btn" id="wbSizePlus" type="button" title="بزرگ کردن تخته"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+    <button class="wt wb-size-btn" id="wbFullBtn" type="button" title="تمام صفحه / اندازه استاندارد"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M16 21h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg></button>
+    <div class="wd"></div>
+    <button class="wt on" data-tool="pen" type="button" title="قلم"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg></button>
+    <button class="wt" data-tool="hl" type="button" title="هایلایت"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 11l-6 6v3h9l3-3"/><path d="M22 12l-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg></button>
+    <button class="wt" data-tool="er" type="button" title="پاک‌کن"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 20H7L3 16c-.4-.4-.4-1 0-1.4l9.6-9.6a2 2 0 0 1 2.8 0l5.2 5.2a2 2 0 0 1 0 2.8L15 18"/></svg></button>
+    <button class="wt" data-tool="ln" type="button" title="خط"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="19" x2="19" y2="5"/></svg></button>
+    <button class="wt" data-tool="rc" type="button" title="مستطیل"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></button>
+    <button class="wt" data-tool="ci" type="button" title="دایره"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg></button>
+    <button class="wt" data-tool="ar" type="button" title="فلش"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="19" x2="19" y2="5"/><polyline points="12 5 19 5 19 12"/></svg></button>
+    <button class="wt" data-tool="tx" type="button" title="متن"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg></button>
+    <button class="wt" data-tool="sel" type="button" title="انتخاب و جابه‌جایی"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="4 3"><rect x="4" y="4" width="16" height="16" rx="2"/></svg></button>
+    <button class="wt" data-tool="pan" type="button" title="جابه‌جایی PDF"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 12.5V10a2 2 0 0 0-2-2 2 2 0 0 0-2 2"/><path d="M14 11V9a2 2 0 0 0-2-2 2 2 0 0 0-2 2v1"/><path d="M10 10.5V5a2 2 0 0 0-2-2 2 2 0 0 0-2 2v9"/></svg></button>
+    <div class="wd"></div>
+    <div class="cR"><div class="cd on" style="background:#333;width:20px;height:20px" data-color="#333"></div><div class="cd" style="background:#ef5350;width:20px;height:20px" data-color="#ef5350"></div><div class="cd" style="background:#42a5f5;width:20px;height:20px" data-color="#42a5f5"></div><div class="cd" style="background:#66bb6a;width:20px;height:20px" data-color="#66bb6a"></div><div class="cd" style="background:#ffb74d;width:20px;height:20px" data-color="#ffb74d"></div><div class="cd" style="background:#ab47bc;width:20px;height:20px" data-color="#ab47bc"></div><div class="cd" style="background:#fff;border:1px solid #ccc;width:20px;height:20px" data-color="#fff"></div></div>
+    <div class="wd"></div>
+    <div class="sR"><div class="sd ss1 on" data-size="2"></div><div class="sd ss2" data-size="4"></div><div class="sd ss3" data-size="7"></div><div class="sd ss4" data-size="12"></div></div>
+    <div class="wd"></div>
+    <button class="wt" id="wbUndo" type="button" title="برگشت"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></button>
+    <button class="wt" id="wbRedo" type="button" title="جلو"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+    <button class="wt" id="wbClear" type="button" title="پاک کردن"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>
+    <div class="wd"></div>
+    <button class="wt" id="wbPdfBtn" type="button" title="افزودن PDF"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></button>
+    <button class="wt" id="wbDownload" type="button" title="دانلود"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+    <div class="wd"></div>
+    <button class="wt" id="wbClose" type="button" style="color:var(--red)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
   </div>
-
-  <!-- Hand Raise Banner -->
-  <?php if ($isHost): ?>
-  <div class="or-hand-banner" id="or-hand-banner">
-    <span id="or-hand-banner-text">✋ دست بلند شد</span>
-    <span class="close" id="or-hand-banner-close">×</span>
-  </div>
-  <?php endif; ?>
-
-  <!-- Main -->
-  <div class="or-main">
-    <div class="or-stage">
-      <div class="or-jitsi-host" id="jitsi-host"></div>
-
-      <!-- Whiteboard Overlay -->
-      <div class="or-whiteboard-host" id="or-whiteboard-host">
-        <div class="wb-toolbar">
-          <button class="wb-tool" data-tool="pen" title="قلم"><?= icon('edit',16) ?></button>
-          <button class="wb-tool" data-tool="eraser" title="پاک‌کن"><?= icon('eraser',16) ?></button>
-          <div class="wb-tool-sep"></div>
-          <button class="wb-tool" data-tool="line" title="خط"><?= icon('minus',16) ?></button>
-          <button class="wb-tool" data-tool="rect" title="مستطیل"><?= icon('square',16) ?></button>
-          <button class="wb-tool" data-tool="circle" title="دایره"><?= icon('circle',16) ?></button>
-          <div class="wb-tool-sep"></div>
-          <span style="color:#aaa;font-size:.74rem;font-weight:700">رنگ:</span>
-          <span class="wb-color active" data-color="#000000" style="background:#000000"></span>
-          <span class="wb-color" data-color="#dc2626" style="background:#dc2626"></span>
-          <span class="wb-color" data-color="#2563eb" style="background:#2563eb"></span>
-          <span class="wb-color" data-color="#16a34a" style="background:#16a34a"></span>
-          <span class="wb-color" data-color="#eab308" style="background:#eab308"></span>
-          <span class="wb-color" data-color="#f97316" style="background:#f97316"></span>
-          <span class="wb-color" data-color="#9333ea" style="background:#9333ea"></span>
-          <div class="wb-tool-sep"></div>
-          <input type="range" min="2" max="20" value="4" id="wb-size" class="wb-size" title="ضخامت قلم">
-          <div class="wb-tool-sep"></div>
-          <button class="wb-tool" data-clear title="پاک کردن همه"><?= icon('trash',15) ?></button>
-          <?php if ($isHost): ?>
-          <button class="wb-tool" id="wb-pdf-btn" title="افزودن PDF درس"><?= icon('pdf',16) ?></button>
-          <button class="wb-tool" id="wb-pdf-prev" title="صفحه قبل" style="display:none"><?= icon('chevron-right',16) ?></button>
-          <span id="wb-pdf-page" style="display:none;color:#e8efe9;font-size:.74rem;font-weight:900;min-width:48px;text-align:center">۱ / ۱</span>
-          <button class="wb-tool" id="wb-pdf-next" title="صفحه بعد" style="display:none"><?= icon('chevron-left',16) ?></button>
-          <button class="wb-tool" id="wb-pdf-zoom-out" title="کوچک‌نمایی PDF" style="display:none">−</button>
-          <button class="wb-tool" id="wb-pdf-zoom-in" title="بزرگ‌نمایی PDF" style="display:none">+</button>
-          <button class="wb-tool" id="wb-pdf-reset" title="اندازه مناسب PDF" style="display:none">100</button>
-          <input id="wb-pdf-input" type="file" accept="application/pdf" hidden>
-          <?php endif; ?>
-          <button class="wb-tool" id="wb-download" title="دانلود خروجی کلاس"><?= icon('download',15) ?></button>
-          <button class="wb-tool wb-exit" title="بستن تخته"><?= icon('x',16) ?></button>
-        </div>
-        <div class="wb-canvas-host">
-          <canvas id="wb-canvas"></canvas>
-          <div class="wb-status">
-            <span class="dot"></span>
-            <span id="wb-status-text">همگام‌شده</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Side Panel -->
-    <div class="or-side is-hidden" id="or-side">
-      <div class="or-side-tabs">
-        <button class="or-side-tab active" data-tab="chat"><?= icon('message',18) ?> <span>چت</span></button>
-        <button class="or-side-tab" data-tab="people"><?= icon('users',18) ?> <span>افراد</span></button>
-        <button class="or-side-tab" data-tab="whiteboard"><?= icon('edit',18) ?> <span>تخته</span></button>
-      </div>
-
-      <div class="or-side-content">
-        <!-- Chat -->
-        <div class="or-tab-content" data-tab-content="chat" style="display:flex;flex-direction:column">
-          <div class="or-chat-list" id="or-chat-list">
-            <?php if ($session['status'] === 'scheduled'): ?>
-              <div class="empty-state" style="padding:24px 12px;color:var(--text-3);font-size:.84rem;text-align:center">
-                <?= icon('clock',20) ?>
-                <p style="margin-top:8px">چت پس از شروع جلسه فعال می‌شود.</p>
-              </div>
-            <?php endif; ?>
-          </div>
-          <div class="or-chat-input-wrap">
-            <textarea class="or-chat-input" id="or-chat-input" placeholder="پیام بنویسید..." rows="1" maxlength="500" <?= !$session['allow_chat'] || $session['status']!=='live' ? 'disabled' : '' ?>></textarea>
-            <button class="or-chat-send" id="or-chat-send" <?= !$session['allow_chat'] || $session['status']!=='live' ? 'disabled' : '' ?>>
-              <?= icon('send',16) ?>
-            </button>
-          </div>
-        </div>
-
-        <!-- People -->
-        <div class="or-tab-content" data-tab-content="people" style="display:none;flex-direction:column">
-          <div class="or-people" id="or-people-list">
-            <div class="or-person is-host">
-              <span class="or-person-ava" style="background:var(--grad-gold);color:#1a1206"><?= e(mb_substr((string)($session['advisor_name'] ?? '?'), 0, 2)) ?></span>
-              <div class="or-person-info">
-                <div class="or-person-name">میزبان · <?= e($session['advisor_name'] ?? 'میزبان') ?></div>
-                <div class="or-person-role">مشاور</div>
-              </div>
-              <div class="or-person-icons"><span class="ic on" title="میکروفون"><?= icon('mic',14) ?></span></div>
-            </div>
-            <?php foreach ($participants as $p): ?>
-              <div class="or-person" id="person-<?= (int)$p['student_id'] ?>" data-user-id="<?= (int)$p['student_id'] ?>">
-                <span class="or-person-ava"><?= e(mb_substr((string)($p['full_name'] ?? '?'), 0, 2)) ?></span>
-                <div class="or-person-info">
-                  <div class="or-person-name"><?= e($p['full_name'] ?? '') ?></div>
-                  <div class="or-person-role">دانش‌آموز</div>
-                </div>
-                <div class="or-person-icons">
-                  <?php if ($isHost): ?>
-                  <button class="or-force-btn" data-force-user="<?= (int)$p['student_id'] ?>" data-force-command="mic_off" title="بستن میکروفون"><?= icon('mic',14) ?></button>
-                  <button class="or-force-btn" data-force-user="<?= (int)$p['student_id'] ?>" data-force-command="cam_off" title="بستن دوربین"><?= icon('video',14) ?></button>
-                  <button class="or-force-btn" data-force-user="<?= (int)$p['student_id'] ?>" data-force-command="kick" title="خارج کردن از کلاس"><?= icon('logout',14) ?></button>
-                  <?php else: ?>
-                  <span class="ic" title="میکروفون"><?= icon('mic',14) ?></span>
-                  <span class="ic" title="دوربین"><?= icon('video',14) ?></span>
-                  <?php endif; ?>
-                </div>
-              </div>
-            <?php endforeach; ?>
-            <?php if (empty($participants)): ?>
-              <div class="empty-state" style="padding:20px;color:var(--text-3);font-size:.82rem;text-align:center">
-                هنوز دانش‌آموزی دعوت نشده
-              </div>
-            <?php endif; ?>
-          </div>
-        </div>
-
-        <!-- Whiteboard tab -->
-        <div class="or-tab-content" data-tab-content="whiteboard" style="display:none">
-          <div style="padding:30px 20px;text-align:center;color:var(--text-3);font-size:.9rem">
-            <div style="font-size:3rem;margin-bottom:12px">✏️</div>
-            <p>تخته‌ی تعاملی</p>
-            <p style="margin-top:8px;font-size:.78rem">برای استفاده، روی تب «تخته» در بالا کلیک کنید.</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-
-  <?php if ($isHost): ?>
-  <div class="or-modal" id="or-settings-modal" aria-hidden="true">
-    <div class="or-modal-card">
-      <div class="or-modal-head">
-        <strong>مدیریت کلاس</strong>
-        <button class="or-btn-icon" id="or-settings-close" type="button"><?= icon('x',18) ?></button>
-      </div>
-      <div class="or-setting-grid">
-        <label><input type="checkbox" data-perm="mic" <?= !empty($session['allow_student_mic']) ? 'checked' : '' ?>> اجازه میکروفون دانش‌آموز</label>
-        <label><input type="checkbox" data-perm="cam" <?= !empty($session['allow_student_cam']) ? 'checked' : '' ?>> اجازه دوربین دانش‌آموز</label>
-        <label><input type="checkbox" data-perm="screen" <?= !empty($session['allow_screen_share']) ? 'checked' : '' ?>> اجازه اشتراک صفحه</label>
-        <label><input type="checkbox" data-perm="whiteboard" <?= !empty($session['allow_whiteboard']) ? 'checked' : '' ?>> اجازه کار روی تخته</label>
-        <label><input type="checkbox" data-perm="chat" <?= !empty($session['allow_chat']) ? 'checked' : '' ?>> اجازه چت</label>
-      </div>
-      <p class="or-setting-note">درخواست‌های دانش‌آموزان برای میکروفون، دوربین و اشتراک صفحه اینجا به شما نمایش داده می‌شود.</p>
-      <div class="or-requests" id="or-permission-requests"></div>
-    </div>
-  </div>
-  <?php endif; ?>
-
-  <!-- Reactions -->
-  <div class="or-reactions" id="or-reactions"></div>
-
-  <!-- Quick Reactions -->
-  <div class="or-quick-react" id="or-quick-react">
-    <button data-react="clap" title="تشویق">👏</button>
-    <button data-react="heart" title="محبوب">❤️</button>
-    <button data-react="thumbs" title="عالی">👍</button>
-    <button data-react="fire" title="آتشین">🔥</button>
-    <button data-react="star" title="ستاره">⭐</button>
-    <button data-react="laugh" title="خنده">😂</button>
-    <button data-react="wow" title="تعجب">😮</button>
-  </div>
-
-  <!-- Controls Bar -->
-  <div class="or-controls">
-    <button class="or-ctrl" id="or-mic-btn" title="میکروفون">
-      <?= icon('mic',20) ?>
-      <span class="or-ctrl-label">میکروفون</span>
-    </button>
-    <button class="or-ctrl" id="or-cam-btn" title="دوربین">
-      <?= icon('video',20) ?>
-      <span class="or-ctrl-label">دوربین</span>
-    </button>
-    <button class="or-ctrl" id="or-screen-btn" title="اشتراک صفحه">
-      <?= icon('monitor',20) ?>
-      <span class="or-ctrl-label">اشتراک صفحه</span>
-    </button>
-    <button class="or-ctrl" id="or-board-btn" title="تخته سفید">
-      <?= icon('edit',20) ?>
-      <span class="or-ctrl-label">تخته</span>
-    </button>
-    <button class="or-ctrl" id="or-chat-btn" title="چت">
-      <?= icon('message',20) ?>
-      <span class="or-ctrl-label">چت</span>
-    </button>
-    <button class="or-ctrl" id="or-people-btn" title="افراد">
-      <?= icon('users',20) ?>
-      <span class="or-ctrl-label">افراد</span>
-    </button>
-    <div class="or-ctrl-divider"></div>
-    <button class="or-ctrl" id="or-hand-btn" title="بلند کردن دست">
-      <?= icon('hand',20) ?>
-      <span class="or-ctrl-label">دست</span>
-    </button>
-    <?php if ($isHost): ?>
-    <button class="or-ctrl" id="or-settings-btn" title="مدیریت کلاس">
-      <?= icon('sliders',20) ?>
-      <span class="or-ctrl-label">مدیریت</span>
-    </button>
-    <?php endif; ?>
-    <button class="or-ctrl" id="or-react-btn" title="واکنش">
-      <?= icon('smile',20) ?>
-      <span class="or-ctrl-label">واکنش</span>
-    </button>
-    <div class="or-ctrl-divider"></div>
-    <button class="or-ctrl danger" id="or-end-btn" title="<?= $isHost ? 'پایان جلسه' : 'خروج' ?>">
-      <?= icon('phone-off',20) ?>
-      <span class="or-ctrl-label"><?= $isHost ? 'پایان' : 'خروج' ?></span>
-    </button>
-  </div>
+  <div class="wb-ca" id="wbCa"><canvas id="pC"></canvas><canvas id="dC"></canvas><canvas id="uC"></canvas><div class="wb-status-sync" id="wbStatus">همگام</div><input type="file" id="pdfF" accept="application/pdf,.pdf" hidden></div>
+  <div class="pdf-nav" id="pdfNav"><button class="pgb" id="pdfPrev" type="button" title="صفحه قبل"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg></button><span class="pgi" id="pgI">1/1</span><button class="pgb" id="pdfNext" type="button" title="صفحه بعد"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg></button><button class="pgb" id="pdfZoomOut" type="button" title="کوچک کردن PDF">−</button><span class="pdf-z" id="pdfZ">100%</span><button class="pgb" id="pdfZoomIn" type="button" title="بزرگ کردن PDF">+</button><button class="pgb" id="pdfReset" type="button" title="بازنشانی زوم">100</button><button class="pgb" id="pdfClose" type="button" title="بستن PDF" style="margin-right:5px;color:var(--red)">×</button></div>
 </div>
+
+<!-- Modals / Toasts / Hidden media mount -->
+<div class="mdl-bg" id="lvMdl"><div class="mdl"><h3><?= icon('alert-circle',20) ?> خروج از کلاس</h3><p id="leaveMsg"><?= $isHost ? 'برای همه پایان داده شود یا فقط خارج می‌شوید؟' : 'از کلاس خارج می‌شوید؟' ?></p><div class="mdl-bt"><?php if($isHost): ?><button class="mb rd" id="endForAll" type="button">پایان برای همه</button><?php endif; ?><button class="mb cn" id="leaveOnly" type="button">فقط خروج</button><button class="mb cn" id="cancelLeave" type="button">انصراف</button></div></div></div>
+<div class="mdl-bg" id="kMdl"><div class="mdl"><h3><?= icon('alert-circle',20) ?> اخراج از کلاس</h3><p id="kMsg">دانش‌آموز خارج شود؟</p><div class="mdl-bt"><button class="mb rd" id="doKick" type="button">اخراج</button><button class="mb cn" id="cancelKick" type="button">انصراف</button></div></div></div>
+<div class="tts" id="tts"></div><div id="p2pMount"></div>
 
 <script>
 window.MADAR = window.MADAR || {};
@@ -438,30 +219,26 @@ window.MADAR.csrf = '<?= e(csrf_token()) ?>';
 window.MADAR_ROOM = {
   apiBase: '<?= e(url('api')) ?>',
   assetBase: '<?= e(url('assets')) ?>/',
-  sessionId: <?= (int)$sessionId ?>,
+  sessionId: <?= $sessionId ?>,
   userId: <?= (int)$u['id'] ?>,
-  userName: '<?= e($u['full_name']) ?>',
+  userName: <?= json_encode((string)$u['full_name'], JSON_UNESCAPED_UNICODE) ?>,
   userRole: '<?= e($role) ?>',
-  displayName: <?= json_encode($displayName, JSON_UNESCAPED_UNICODE) ?>,
-  jitsiRoom: '<?= e($session['jitsi_room_name']) ?>',
-  jitsiServer: '<?= e($jitsiServer) ?>',
-  useFallback: <?= $useFallback ? 'true' : 'false' ?>,
-  jitsiDisabled: <?= $jitsiDisabled ? 'true' : 'false' ?>,
-  useP2P: <?= $useP2P ? 'true' : 'false' ?>,
-  status: '<?= e($session['status'] ?? 'scheduled') ?>',
+  displayName: <?= json_encode((string)$u['full_name'], JSON_UNESCAPED_UNICODE) ?>,
+  status: '<?= e((string)$session['status']) ?>',
   isHost: <?= $isHost ? 'true' : 'false' ?>,
+  advisor: {id: <?= (int)$session['advisor_id'] ?>, name: <?= json_encode($advisorName, JSON_UNESCAPED_UNICODE) ?>, avatar: <?= json_encode($advisorLetters, JSON_UNESCAPED_UNICODE) ?>},
+  participants: <?= json_encode($participantsPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>,
   permissions: {
-    mic: <?= !empty($session['allow_student_mic']) || $isHost ? 'true' : 'false' ?>,
-    cam: <?= !empty($session['allow_student_cam']) || $isHost ? 'true' : 'false' ?>,
-    screen: <?= !empty($session['allow_screen_share']) || $isHost ? 'true' : 'false' ?>,
-    whiteboard: <?= !empty($session['allow_whiteboard']) || $isHost ? 'true' : 'false' ?>,
-    chat: <?= !empty($session['allow_chat']) || $isHost ? 'true' : 'false' ?>
-  }
+    mic: <?= !empty($effectivePermissions['mic']) ? 'true' : 'false' ?>,
+    cam: <?= !empty($effectivePermissions['cam']) ? 'true' : 'false' ?>,
+    screen: <?= !empty($effectivePermissions['screen']) ? 'true' : 'false' ?>,
+    whiteboard: <?= !empty($effectivePermissions['whiteboard']) ? 'true' : 'false' ?>,
+    chat: <?= !empty($effectivePermissions['chat']) ? 'true' : 'false' ?>
+  },
+  exitUrl: '<?= e(url($exitUrl)) ?>'
 };
 </script>
 <script src="<?= asset('js/webrtc_p2p.js') ?>"></script>
-<script src="<?= asset('js/online_room.js') ?>"></script>
-
+<script src="<?= asset('js/online_class.js') ?>"></script>
 </body>
 </html>
-<?php // end of room render ?>
