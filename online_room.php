@@ -253,6 +253,9 @@ $jitsiDisabled = $useP2P || isset($_GET['no_jitsi']);
           <button class="wb-tool" id="wb-pdf-prev" title="صفحه قبل" style="display:none"><?= icon('chevron-right',16) ?></button>
           <span id="wb-pdf-page" style="display:none;color:#e8efe9;font-size:.74rem;font-weight:900;min-width:48px;text-align:center">۱ / ۱</span>
           <button class="wb-tool" id="wb-pdf-next" title="صفحه بعد" style="display:none"><?= icon('chevron-left',16) ?></button>
+          <button class="wb-tool" id="wb-pdf-zoom-out" title="کوچک‌نمایی PDF" style="display:none">−</button>
+          <button class="wb-tool" id="wb-pdf-zoom-in" title="بزرگ‌نمایی PDF" style="display:none">+</button>
+          <button class="wb-tool" id="wb-pdf-reset" title="اندازه مناسب PDF" style="display:none">100</button>
           <input id="wb-pdf-input" type="file" accept="application/pdf" hidden>
           <?php endif; ?>
           <button class="wb-tool" id="wb-download" title="دانلود خروجی کلاس"><?= icon('download',15) ?></button>
@@ -314,8 +317,14 @@ $jitsiDisabled = $useP2P || isset($_GET['no_jitsi']);
                   <div class="or-person-role">دانش‌آموز</div>
                 </div>
                 <div class="or-person-icons">
+                  <?php if ($isHost): ?>
+                  <button class="or-force-btn" data-force-user="<?= (int)$p['student_id'] ?>" data-force-command="mic_off" title="بستن میکروفون"><?= icon('mic',14) ?></button>
+                  <button class="or-force-btn" data-force-user="<?= (int)$p['student_id'] ?>" data-force-command="cam_off" title="بستن دوربین"><?= icon('video',14) ?></button>
+                  <button class="or-force-btn" data-force-user="<?= (int)$p['student_id'] ?>" data-force-command="kick" title="خارج کردن از کلاس"><?= icon('logout',14) ?></button>
+                  <?php else: ?>
                   <span class="ic" title="میکروفون"><?= icon('mic',14) ?></span>
                   <span class="ic" title="دوربین"><?= icon('video',14) ?></span>
+                  <?php endif; ?>
                 </div>
               </div>
             <?php endforeach; ?>

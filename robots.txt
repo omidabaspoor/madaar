@@ -4,6 +4,11 @@ User-agent: *
 # صفحات عمومی — مجاز
 Allow: /$
 Allow: /index.php
+Allow: /about.php
+Allow: /services.php
+Allow: /contact.php
+Allow: /privacy.php
+Allow: /terms.php
 Allow: /assets/img/
 Allow: /assets/icons/
 Allow: /assets/css/

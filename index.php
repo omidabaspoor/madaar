@@ -7,7 +7,8 @@ boot_session();
 if (is_logged_in()) {
     $r = user_role();
     if ($r === 'student') redirect('student/dashboard.php');
-    if (in_array($r, ['advisor','admin'], true)) redirect('admin/dashboard.php');
+    if ($r === 'admin') redirect('admin/dashboard.php');
+    if ($r === 'advisor') redirect(advisor_first_allowed_admin_path((int)current_user()['id']));
 }
 
 /* ---------- موکاپ موبایلِ پنل دانش‌آموز (HTML/CSS خالص) ---------- */
@@ -17,7 +18,7 @@ function mock_phone(): string {
       <div class="phone-screen">
         <div class="mock-top">
           <div>
-            <span class="mt-name">سلام، علی 👋</span>
+            <span class="mt-name">سلام، آرمان 👋</span>
             <span class="mt-sub">برنامه‌ی امروز شما</span>
           </div>
           <span class="mock-ava">ع‌ر</span>
@@ -79,7 +80,7 @@ function mock_window(): string {
             <div class="win-stat"><div class="v">۱۲</div><div class="k">برنامه‌ی این هفته</div></div>
           </div>
           <div class="win-grid">
-            <div class="wg-head"><b>برنامه‌ی هفتگی · علی رضایی</b><span class="wg-badge">منتشر شده</span></div>
+            <div class="wg-head"><b>برنامه‌ی هفتگی · آرمان کریمی</b><span class="wg-badge">منتشر شده</span></div>
             <div class="win-row">
               <div class="win-cell f-gold">زیست ف۴</div>
               <div class="win-cell f-gold">شیمی</div>
@@ -115,10 +116,10 @@ page_head('', '', ['landing.css']);
   <div class="container inner">
     <?= brand_block() ?>
     <ul class="nav-links">
-      <li><a href="#features"><?= icon('grid',16) ?> امکانات</a></li>
-      <li><a href="#flow">مسیر کاربری</a></li>
-      <li><a href="#panels">نمای سامانه</a></li>
-      <li><a href="#tech">امنیت</a></li>
+      <li><a href="<?= url('services.php') ?>"><?= icon('grid',16) ?> خدمات</a></li>
+      <li><a href="<?= url('about.php') ?>">درباره ما</a></li>
+      <li><a href="<?= url('contact.php') ?>">تماس با ما</a></li>
+      <li><a href="#features">امکانات</a></li>
     </ul>
     <div class="flex gap-2" style="align-items:center">
       <a href="<?= url('auth/login.php') ?>" class="btn btn-ghost btn-sm"><?= icon('login',16) ?> ورود</a>
@@ -299,10 +300,11 @@ page_head('', '', ['landing.css']);
       </div>
       <div>
         <h4>دسترسی سریع</h4>
-        <a href="#features">امکانات</a>
-        <a href="#flow">مسیر کاربری</a>
-        <a href="#panels">نمای سامانه</a>
-        <a href="#tech">امنیت</a>
+        <a href="<?= url('services.php') ?>">خدمات</a>
+        <a href="<?= url('about.php') ?>">درباره ما</a>
+        <a href="<?= url('contact.php') ?>">تماس با ما</a>
+        <a href="<?= url('privacy.php') ?>">حریم خصوصی</a>
+        <a href="<?= url('terms.php') ?>">قوانین استفاده</a>
       </div>
       <div>
         <h4>حساب کاربری</h4>

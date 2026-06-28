@@ -227,6 +227,56 @@ function apply_upgrades(PDO $pdo, array &$messages): void {
     }
 }
 
+
+// ---------------------------------------------------------------------------
+// گام ۳.۵ — پاک‌سازی داده‌های تکراری فصل‌ها و درس‌ها
+// ---------------------------------------------------------------------------
+function normalize_curriculum_duplicates(PDO $pdo, array &$messages): void {
+    $removedSubjects = 0;
+    $removedChapters = 0;
+
+    try {
+        // قبل از حذف درس‌های تکراری، ارجاع تسک‌ها و حافظه برنامه‌ریز به ردیف اصلی منتقل می‌شود.
+        $pdo->exec("UPDATE tasks t
+            JOIN subjects s1 ON s1.id=t.subject_id
+            JOIN subjects s2 ON s1.id > s2.id
+             AND s1.name = s2.name
+             AND (s1.advisor_id <=> s2.advisor_id)
+            SET t.subject_id=s2.id");
+        $pdo->exec("UPDATE planner_memory pm
+            JOIN subjects s1 ON s1.id=pm.subject_id
+            JOIN subjects s2 ON s1.id > s2.id
+             AND s1.name = s2.name
+             AND (s1.advisor_id <=> s2.advisor_id)
+            SET pm.subject_id=s2.id");
+        // از هر درس برای هر advisor فقط یک ردیف نگه داشته می‌شود؛ ردیف قدیمی‌تر باقی می‌ماند.
+        $removedSubjects = (int)$pdo->exec("DELETE s1 FROM subjects s1
+            JOIN subjects s2 ON s1.id > s2.id
+             AND s1.name = s2.name
+             AND (s1.advisor_id <=> s2.advisor_id)");
+    } catch (Throwable $e) {}
+
+    try {
+        // از هر فصل/درس برای هر ترکیب درس، پایه، رشته، کتاب و advisor فقط یک ردیف نگه داشته می‌شود.
+        $removedChapters = (int)$pdo->exec("DELETE c1 FROM chapters c1
+            JOIN chapters c2 ON c1.id > c2.id
+             AND c1.subject_name = c2.subject_name
+             AND c1.grade = c2.grade
+             AND c1.field = c2.field
+             AND c1.book_name = c2.book_name
+             AND c1.chapter_name = c2.chapter_name
+             AND (c1.advisor_id <=> c2.advisor_id)");
+    } catch (Throwable $e) {}
+
+    if ($removedSubjects || $removedChapters) {
+        $messages[] = 'داده‌های تکراری برنامه درسی پاک‌سازی شد: '
+            . fa_num($removedSubjects) . ' درس · '
+            . fa_num($removedChapters) . ' فصل.';
+    } else {
+        $messages[] = 'درس‌ها و فصل‌ها بدون تکرار هستند.';
+    }
+}
+
 // ---------------------------------------------------------------------------
 // اجرای نصب (وقتی فرم POST شد، یا ?update=1، یا CLI)
 // ---------------------------------------------------------------------------
@@ -253,6 +303,9 @@ if ($run) {
 
         // ۳) اجرای فایل‌های ارتقا و seed
         apply_upgrades($pdo, $messages);
+
+        // ۳.۵) پاک‌سازی تکرارهای احتمالی فصل‌ها/درس‌ها
+        normalize_curriculum_duplicates($pdo, $messages);
 
         // ۴) اطمینان از حساب مشاور اصلی (همیشه)
         ensure_root_advisor($pdo, $messages);

@@ -25,6 +25,37 @@ echo '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
       <image:title>لوگوی مَدار</image:title>
     </image:image>
   </url>
+
+  <url>
+    <loc><?= $domain ?>/services.php</loc>
+    <lastmod><?= $lastmod ?></lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc><?= $domain ?>/about.php</loc>
+    <lastmod><?= $lastmod ?></lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc><?= $domain ?>/contact.php</loc>
+    <lastmod><?= $lastmod ?></lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc><?= $domain ?>/privacy.php</loc>
+    <lastmod><?= $lastmod ?></lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc><?= $domain ?>/terms.php</loc>
+    <lastmod><?= $lastmod ?></lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.5</priority>
+  </url>
   <url>
     <loc><?= $domain ?>/auth/login.php</loc>
     <lastmod><?= $lastmod ?></lastmod>
