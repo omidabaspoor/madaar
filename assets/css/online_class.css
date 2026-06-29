@@ -347,3 +347,77 @@ body{font-family:'Vazirmatn',sans-serif;background:var(--b0);color:var(--t1);ove
 .scb.sl{background:linear-gradient(135deg,var(--g1),var(--g3));color:var(--b0)}
 .scb.sl:hover{box-shadow:0 0 14px var(--gg)}
 .adv-c.pinned-student{border-color:rgba(68,170,255,.35)}
+
+.perm-btn {
+  background: var(--b3);
+  color: var(--t1);
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-family: Vazirmatn;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: var(--tr);
+}
+.perm-btn.on {
+  background: rgba(110, 231, 160, 0.15);
+  border-color: var(--g1);
+  color: var(--g1);
+}
+.perm-btn.off {
+  background: rgba(255, 68, 68, 0.15);
+  border-color: var(--red);
+  color: #ff8080;
+}
+
+@media (max-width: 900px) {
+  .wb-pn {
+    top: var(--hdr-h) !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: calc(100vh - var(--hdr-h)) !important;
+    height: calc(100dvh - var(--hdr-h)) !important;
+    border: none !important;
+  }
+  .wb-hd {
+    height: 48px !important;
+    padding: 4px 6px !important;
+    gap: 5px !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    background: var(--b1) !important;
+    border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+  }
+  .wb-hd .wt {
+    width: 36px !important;
+    height: 36px !important;
+    background: var(--b2) !important;
+    border-radius: 8px !important;
+    flex-shrink: 0 !important;
+  }
+  .wb-hd .wt.on {
+    background: var(--g1) !important;
+    color: var(--b0) !important;
+  }
+  .pdf-nav {
+    bottom: 14px !important;
+    left: 10px !important;
+    right: 10px !important;
+    transform: none !important;
+    max-width: none !important;
+    width: calc(100vw - 20px) !important;
+    justify-content: space-around !important;
+    padding: 8px 12px !important;
+    background: rgba(18,21,26,0.96) !important;
+    border: 1px solid var(--g1) !important;
+    border-radius: 16px !important;
+  }
+  .pdf-nav .pgb {
+    width: 34px !important;
+    height: 34px !important;
+    border-radius: 10px !important;
+  }
+}

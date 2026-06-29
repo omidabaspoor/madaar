@@ -25,12 +25,7 @@
       return this;
     }
     async initMedia(){
-      const constraints={audio:!!this.room.isHost&&!!this.room.permissions.mic, video:!!this.room.isHost&&!!this.room.permissions.cam};
-      try{ if(constraints.audio||constraints.video) this.localStream=await navigator.mediaDevices.getUserMedia(constraints); }
-      catch(e){ console.warn('P2P getUserMedia failed',e); this.hooks.toast&&this.hooks.toast('دسترسی به دوربین/میکروفون داده نشد؛ بدون تصویر وارد شدید.'); }
-      if(!this.localStream) this.localStream=new MediaStream();
-      this.localStream.getAudioTracks().forEach(t=>t.enabled=this.micOn);
-      this.localStream.getVideoTracks().forEach(t=>t.enabled=this.camOn);
+      this.localStream = new MediaStream();
     }
     async register(){
       const r=await this.post('register',{room_id:this.room.sessionId,name:this.room.displayName||this.room.userName,is_host:this.room.isHost?1:0,mic_on:this.micOn?1:0,cam_on:this.camOn?1:0,screen_on:0});
@@ -84,7 +79,7 @@
       if(cmd==='kick') { this.hooks.toast&&this.hooks.toast('مشاور شما را از کلاس خارج کرد.'); setTimeout(()=>location.href='student/online_sessions.php',800); }
     }
     async signal(to, signal){ return this.post('signal',{room_id:this.room.sessionId,my_id:this.myPeerId,to_peer_id:to,signal}); }
-    async post(action, body){ const csrf=window.MADAR?.csrf||document.querySelector('meta[name="csrf-token"]')?.content||''; const res=await fetch(`${this.api}?action=${encodeURIComponent(action)}&room_id=${this.room.sessionId}`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},credentials:'same-origin',body:JSON.stringify(body||{})}); return res.json(); }
+    async post(action, body){ const csrf=window.MADAR?.csrf||document.querySelector('meta[name="csrf-token"]')?.content||''; const res=await fetch(`${this.api}?action=${encodeURIComponent(action)}&room_id=${this.room.sessionId}`,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},credentials:'include',body:JSON.stringify(Object.assign({_csrf:csrf},body||{}))}); return res.json(); }
     addTile(id,name,stream,isLocal,isHost=false,meta={}){
       if(this.hooks.onTile && this.hooks.onTile({id,name,stream,isLocal,isHost,meta})===true) return;
       let tile=this.tiles.get(id);
@@ -99,8 +94,158 @@
     removePeer(id){ const st=this.peers.get(id); if(st){ try{st.pc.close()}catch(e){} this.peers.delete(id); } this.screenSenders.delete(id); this.removeTile(id); this.removeTile(id+'_screen'); }
     async forceMic(on){ this.micOn=!!on; this.localStream.getAudioTracks().forEach(t=>t.enabled=this.micOn); await this.updateState(); return this.micOn; }
     async forceCam(on){ this.camOn=!!on; this.localStream.getVideoTracks().forEach(t=>t.enabled=this.camOn); await this.updateState(); return this.camOn; }
-    async toggleMic(){ if(!this.room.permissions.mic && !this.room.isHost) return false; if(!this.localStream.getAudioTracks().length){ try{ const s=await navigator.mediaDevices.getUserMedia({audio:true}); const t=s.getAudioTracks()[0]; this.localStream.addTrack(t); for(const {pc} of this.peers.values()) pc.addTrack(t,this.localStream); }catch(e){this.hooks.toast&&this.hooks.toast('میکروفون در دسترس نیست.'); return false;} } return this.forceMic(!this.micOn); }
-    async toggleCam(){ if(!this.room.permissions.cam && !this.room.isHost) return false; if(!this.localStream.getVideoTracks().length){ try{ const s=await navigator.mediaDevices.getUserMedia({video:true}); const t=s.getVideoTracks()[0]; this.localStream.addTrack(t); for(const {pc} of this.peers.values()) pc.addTrack(t,this.localStream); }catch(e){this.hooks.toast&&this.hooks.toast('دوربین در دسترس نیست.'); return false;} } return this.forceCam(!this.camOn); }
+    async toggleMic(){
+      if(!this.room.permissions.mic && !this.room.isHost) return false;
+      if(!this.localStream.getAudioTracks().length){
+        if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+          this.hooks.toast&&this.hooks.toast('دسترسی به میکروفون فقط در بستر امن HTTPS یا localhost امکان‌پذیر است.','er');
+          return false;
+        }
+        try{
+          const s=await navigator.mediaDevices.getUserMedia({audio:true});
+          const t=s.getAudioTracks()[0];
+          if(t){
+            this.localStream.addTrack(t);
+            for(const {pc} of this.peers.values()) pc.addTrack(t,this.localStream);
+          }
+        }catch(e){
+          console.warn('mic getUserMedia err:',e);
+          this.hooks.toast&&this.hooks.toast('دسترسی به میکروفون مسدود است. روی آیکون قفل 🔒 آدرس مرورگر کلیک کرده و Microphone را فعال کنید.','er');
+          return false;
+        }
+      }
+      return this.forceMic(!this.micOn);
+    }
+    async toggleCam(){
+      if(!this.room.permissions.cam && !this.room.isHost) return false;
+      if(!this.localStream.getVideoTracks().length){
+        let stream = null;
+        if(navigator.mediaDevices?.getUserMedia){
+          try{ stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"user"}, audio:false}); }catch(e1){
+            try{ stream = await navigator.mediaDevices.getUserMedia({video:true}); }catch(e2){}
+          }
+        }
+        if(!stream || !stream.getVideoTracks().length){
+          if(navigator.mediaDevices?.getDisplayMedia){
+            try{ stream = await navigator.mediaDevices.getDisplayMedia({video:true, audio:false}); }catch(e3){}
+          }
+        }
+        if(!stream || !stream.getVideoTracks().length){
+          stream = await this.launchFallbackCamUI();
+        }
+        if(!stream || !stream.getVideoTracks().length){
+          this.hooks.toast&&this.hooks.toast('اتصال به وب‌کم مقدور نشد. اگر داخل فریم یا اپلیکیشن هستید، آدرس را در یک تب جداگانه باز کنید.','er');
+          return false;
+        }
+        const track = stream.getVideoTracks()[0];
+        this.localStream.addTrack(track);
+        for(const {pc} of this.peers.values()){
+          try { pc.addTrack(track,this.localStream); } catch(errTrack){}
+        }
+      }
+      return this.forceCam(!this.camOn);
+    }
+    async launchFallbackCamUI(){
+      return new Promise((resolve) => {
+        let modal = document.getElementById('madarAltCamModal');
+        if(!modal){
+          modal = document.createElement('div');
+          modal.id = 'madarAltCamModal';
+          modal.className = 'mdl-bg on';
+          modal.style.zIndex = '9999';
+          modal.innerHTML = `
+            <div class="mdl" style="max-width:440px;text-align:center;background:#12151a;border:1px solid #6ee7a0;color:#fff;padding:24px;border-radius:20px;">
+              <h3 style="color:#6ee7a0;font-size:16px;margin-bottom:12px;">📷 انتخابگر دوربین جایگزین مَدار</h3>
+              <p style="font-size:12px;color:#a0a8b4;line-height:1.8;margin-bottom:18px;">مرورگر یا سیستم‌عامل، دسترسی مستقیم به وب‌کم را محدود کرده است. لطفاً یکی از روش‌های پایدار زیر را انتخاب کنید:</p>
+              
+              <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px;">
+                <button id="macBtnSimulated" style="padding:12px;border-radius:12px;background:linear-gradient(135deg,#6ee7a0,#48a86c);color:#0b0d10;border:none;font-weight:900;cursor:pointer;font-family:inherit;font-size:12px;box-shadow:0 0 15px rgba(110,231,160,0.3);">
+                  ✨ ایجاد دوربین هوشمند مَدار (بدون نیاز به وب‌کم فیزیکی)
+                </button>
+                <button id="macBtnDisplay" style="padding:12px;border-radius:12px;background:#4af;color:#fff;border:none;font-weight:bold;cursor:pointer;font-family:inherit;font-size:12px;">
+                  🖥️ اشتراک‌گذاری پنجره تصویر / دوربین (Screen Cam)
+                </button>
+                <button id="macBtnFile" style="padding:12px;border-radius:12px;background:#2c323c;color:#fff;border:1px solid #6ee7a0;font-weight:bold;cursor:pointer;font-family:inherit;font-size:12px;">
+                  📁 انتخاب ویدئو یا عکس از دستگاه (Virtual Cam)
+                </button>
+                <button id="macBtnHelp" style="padding:10px;border-radius:12px;background:#232830;color:#fb3;border:1px solid #fb3;font-weight:bold;cursor:pointer;font-family:inherit;font-size:11px;">
+                  🔒 راهنمای فعال‌سازی مجوز مستقیم مرورگر
+                </button>
+              </div>
+              <button id="macBtnCancel" style="width:100%;padding:10px;border-radius:12px;background:transparent;color:#f44;border:1px solid #f44;font-weight:bold;cursor:pointer;font-family:inherit;">انصراف</button>
+            </div>
+            <input type="file" id="macFileInput" accept="video/*,image/*" capture="user" style="display:none">
+          `;
+          document.body.appendChild(modal);
+        }
+        modal.classList.add('on');
+        modal.style.display = 'flex';
+        const close = () => { modal.classList.remove('on'); modal.style.display = 'none'; };
+        modal.querySelector('#macBtnCancel').onclick = () => { close(); resolve(null); };
+        modal.querySelector('#macBtnSimulated').onclick = () => {
+          close();
+          const cv = document.createElement('canvas');
+          cv.width = 640; cv.height = 480;
+          const cx = cv.getContext('2d');
+          const letters = (this.room.displayName||this.room.userName||'م').trim().slice(0,2);
+          let hue = 140;
+          setInterval(() => {
+            hue = (hue + 2) % 360;
+            cx.fillStyle = '#0b0d10'; cx.fillRect(0,0,640,480);
+            cx.beginPath(); cx.arc(320,220,110,0,Math.PI*2);
+            cx.fillStyle = `hsl(${hue}, 70%, 40%)`; cx.fill();
+            cx.fillStyle = '#0b0d10'; cx.font = 'bold 80px Vazirmatn,Tahoma';
+            cx.textAlign = 'center'; cx.textBaseline = 'middle';
+            cx.fillText(letters, 320, 220);
+            cx.fillStyle = '#6ee7a0'; cx.font = 'bold 24px Vazirmatn,Tahoma';
+            cx.fillText('🔴 دوربین هوشمند فعال مَدار', 320, 400);
+          }, 60);
+          resolve(cv.captureStream(15));
+        };
+        modal.querySelector('#macBtnHelp').onclick = () => {
+          alert('راهنمای فعال‌سازی:\n\n۱. روی آیکون قفل 🔒 در نوار آدرس مرورگر کلیک کنید.\n۲. گزینه Permissions یا Site Settings را انتخاب کنید.\n۳. دسترسی Camera را روی Allow قرار دهید.\n۴. صفحه را رفرش کنید.');
+        };
+        modal.querySelector('#macBtnDisplay').onclick = async () => {
+          close();
+          if(!navigator.mediaDevices?.getDisplayMedia){
+            alert('این قابلیت روی دستگاه شما پشتیبانی نمی‌شود.');
+            resolve(null); return;
+          }
+          try {
+            const st = await navigator.mediaDevices.getDisplayMedia({video: true, audio: false});
+            resolve(st);
+          } catch(err){ resolve(null); }
+        };
+        modal.querySelector('#macBtnFile').onclick = () => {
+          const inp = modal.querySelector('#macFileInput');
+          inp.onchange = (e) => {
+            const f = e.target.files[0];
+            if(!f) { resolve(null); return; }
+            close();
+            const url = URL.createObjectURL(f);
+            if(f.type.startsWith('image')){
+              const img = new Image();
+              img.onload = () => {
+                const cv = document.createElement('canvas');
+                cv.width = 640; cv.height = 480;
+                const cx = cv.getContext('2d');
+                setInterval(() => { cx.drawImage(img, 0, 0, 640, 480); }, 100);
+                resolve(cv.captureStream(10));
+              };
+              img.src = url;
+            } else {
+              const vd = document.createElement('video');
+              vd.loop = true; vd.autoplay = true; vd.playsInline = true; vd.muted = true;
+              vd.src = url; vd.play();
+              vd.onplaying = () => {
+                resolve(vd.captureStream ? vd.captureStream() : (vd.mozCaptureStream ? vd.mozCaptureStream() : null));
+              };
+            }
+          };
+          inp.click();
+        };
+      });
+    }
     focusTile(id){ const tile=this.tiles.get(id); if(!tile)return; const focused=tile.classList.toggle('focused'); this.grid.classList.toggle('has-focused',focused); if(focused && tile.requestFullscreen) tile.requestFullscreen().catch(()=>{}); else if(document.fullscreenElement) document.exitFullscreen().catch(()=>{}); }
     async toggleScreen(){ if(!this.room.permissions.screen && !this.room.isHost) return false; if(this.screenStream){ await this.stopScreen(); return false; } try{ this.screenStream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:false}); const screenTrack=this.screenStream.getVideoTracks()[0]; if(screenTrack) screenTrack.contentHint='detail'; this.screenSenders.clear(); for(const [pid,{pc}] of this.peers.entries()){ try{ this.screenSenders.set(pid, pc.addTrack(screenTrack,this.screenStream)); }catch(e){} } this.screenOn=true; this.addTile('local_screen','اشتراک صفحه شما',this.screenStream,true,false,{user_id:this.room.userId,mic_on:0,cam_on:0,screen_on:1,is_host:0}); await this.updateState(); screenTrack.onended=()=>this.stopScreen(); return true; }catch(e){ this.hooks.toast&&this.hooks.toast('اشتراک صفحه لغو شد یا پشتیبانی نمی‌شود.'); return false; } }
     async stopScreen(){ for(const [pid,sender] of this.screenSenders.entries()){ const st=this.peers.get(pid); if(st&&sender){ try{st.pc.removeTrack(sender)}catch(e){} } } this.screenSenders.clear(); if(this.screenStream){this.screenStream.getTracks().forEach(t=>t.stop()); this.screenStream=null;} this.screenOn=false; this.removeTile('local_screen'); await this.updateState(); }

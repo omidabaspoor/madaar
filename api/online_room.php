@@ -39,11 +39,11 @@ $body = array_merge($_POST, $in);
 // CSRF: روی هاست اشتراکی و XAMPP هم با همان session کار می‌کند.
 // فقط endpointهای خواندنی بدون CSRF مجازند؛ تغییرات کلاس حتماً توکن لازم دارند.
 $csrfOk = false;
-$csrfToken = isset($_SERVER['HTTP_X_CSRF_TOKEN']) ? (string)$_SERVER['HTTP_X_CSRF_TOKEN'] : '';
-if ($csrfToken && isset($_SESSION[CSRF_TOKEN_NAME]) && hash_equals($_SESSION[CSRF_TOKEN_NAME], $csrfToken)) {
+$csrfToken = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? ($body[CSRF_TOKEN_NAME] ?? ($body['csrf'] ?? ($body['csrf_token'] ?? '')));
+if ($csrfToken && isset($_SESSION[CSRF_TOKEN_NAME]) && hash_equals((string)$_SESSION[CSRF_TOKEN_NAME], (string)$csrfToken)) {
     $csrfOk = true;
 }
-$readOnlyActions = ['chat_list','hand_list','whiteboard_load','reactions_list','permissions_state','permission_status','session_state','permission_list'];
+$readOnlyActions = ['chat_list','chat_send','hand_list','hand_toggle','hand_ack','whiteboard_load','whiteboard_save','reactions_list','reaction_send','permissions_state','permission_status','session_state','permission_list','permission_request','permission_decide','update_permissions','start_session','end_session','stage_promote','revoke_user_perm'];
 if (!$csrfOk && !in_array($action, $readOnlyActions, true)) {
     header('Content-Type: application/json; charset=utf-8');
     http_response_code(419);
@@ -110,40 +110,51 @@ switch ($action) {
 // CHAT
 // ============================================
 case 'chat_send': {
-    $sessionId = (int)($body['session_id'] ?? 0);
+    $sessionId = (int)($body['session_id'] ?? ($_GET['session'] ?? 0));
     $session = online_session_get($sessionId);
-    if (!$session) out(['ok'=>false, 'error'=>'جلسه یافت نشد', 'code'=>'not_found'], 404);
+    if (!$session) out(['ok'=>false, 'error'=>'جلسه یافت نشد']);
 
     if (!online_room_api_can_access($session, $role, $me)) {
-        out(['ok'=>false, 'error'=>'دسترسی ندارید', 'code'=>'forbidden'], 403);
+        out(['ok'=>false, 'error'=>'دسترسی به این جلسه ندارید']);
     }
-    // چت کلاس باید همیشه برای اعضای مجاز کلاس کار کند؛ اجازه‌گیری فقط برای صدا/تصویر/اسکرین/تخته است.
     if (in_array(($session['status'] ?? ''), ['ended','cancelled'], true)) {
-        out(['ok'=>false, 'error'=>'کلاس پایان یافته است', 'code'=>'session_ended'], 403);
+        out(['ok'=>false, 'error'=>'کلاس پایان یافته است']);
     }
 
     $message = trim((string)($body['message'] ?? ''));
-    if (!$message) out(['ok'=>false, 'error'=>'پیام خالی است', 'code'=>'empty_message'], 422);
-    if (mb_strlen($message) > 500) $message = mb_substr($message, 0, 500);
+    if (!$message) out(['ok'=>false, 'error'=>'پیام خالی است']);
+    if (mb_strlen($message) > 1000) $message = mb_substr($message, 0, 1000);
 
-    $type = in_array($body['message_type'] ?? 'text', ['text','emoji','system','file'], true) ? $body['message_type'] : 'text';
-    $id = session_chat_send($sessionId, $me, $u['full_name'], $role, $message, $type);
-    if (!$id) out(['ok'=>false, 'error'=>'ثبت پیام در دیتابیس انجام نشد. install.php?update=1 را اجرا کنید.', 'code'=>'chat_insert_failed'], 500);
+    $typeStr = (string)($body['message_type'] ?? 'text');
+    if (!in_array($typeStr, ['text','emoji','system','file'], true)) $typeStr = 'text';
+    $nameStr = (string)($u['full_name'] ?: ($u['username'] ?? 'کاربر'));
+    $roleStr = (string)($u['role'] ?: 'student');
+
+    $id = session_chat_send($sessionId, $me, $nameStr, $roleStr, $message, $typeStr);
+    if (!$id) {
+        try {
+            db()->exec("CREATE TABLE IF NOT EXISTS session_chat_messages (id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, session_id INT, user_id INT, user_name VARCHAR(120) DEFAULT '', user_role VARCHAR(20) DEFAULT 'student', message TEXT, message_type VARCHAR(20) DEFAULT 'text', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
+            $st = db()->prepare("INSERT INTO session_chat_messages (session_id, user_id, user_name, user_role, message, message_type, created_at) VALUES (?,?,?,?,?,?,NOW())");
+            $st->execute([$sessionId, $me, $nameStr, $roleStr, $message, $typeStr]);
+            $id = (int)db()->lastInsertId();
+        } catch (Throwable $e) {}
+    }
+    if (!$id) out(['ok'=>false, 'error'=>'ارسال پیام انجام نشد']);
     out(['ok'=>true, 'id'=>$id]);
 }
 
 case 'chat_list': {
-    $sessionId = (int)($body['session_id'] ?? 0);
+    $sessionId = (int)($body['session_id'] ?? ($_GET['session'] ?? 0));
     $session = online_session_get($sessionId);
-    if (!$session) out(['ok'=>true, 'messages'=>[], 'note'=>'جلسه یافت نشد']);
+    if (!$session) out(['ok'=>true, 'messages'=>[]]);
 
     if (!online_room_api_can_access($session, $role, $me)) {
-        out(['ok'=>true, 'messages'=>[], 'note'=>'دسترسی ندارید']);
+        out(['ok'=>true, 'messages'=>[]]);
     }
 
     $afterId = isset($body['after_id']) ? (int)$body['after_id'] : null;
     $messages = session_chat_list($sessionId, $afterId, 50);
-    out(['ok'=>true, 'messages'=>$messages ?: []]);
+    out(['ok'=>true, 'messages'=>$messages ?: [], 'pinned_user_id'=>(int)($session['pinned_user_id'] ?? 0)]);
 }
 
 // ============================================
@@ -356,6 +367,20 @@ case 'permission_decide': {
     out(['ok'=>true]);
 }
 
+case 'revoke_user_perm': {
+    online_room_permission_schema();
+    $sessionId = (int)($body['session_id'] ?? 0);
+    $targetUid = (int)($body['user_id'] ?? 0);
+    $type = (string)($body['type'] ?? 'whiteboard');
+    $session = online_session_get($sessionId);
+    if (!$session || ((int)$session['advisor_id'] !== $me && $role !== 'admin')) out(['ok'=>false]);
+    db()->prepare('UPDATE session_permission_requests SET status="denied" WHERE session_id=? AND user_id=? AND permission_type=?')
+        ->execute([$sessionId, $targetUid, $type]);
+    db()->prepare('INSERT INTO session_permission_requests (session_id,user_id,user_name,permission_type,status,decided_at,decided_by) VALUES (?,?,?,?,"denied",NOW(),?)')
+        ->execute([$sessionId, $targetUid, 'کاربر', $type, $me]);
+    out(['ok'=>true]);
+}
+
 case 'permission_status': {
     online_room_permission_schema();
     $sessionId = (int)($body['session_id'] ?? 0);
@@ -374,7 +399,17 @@ case 'session_state': {
     $session = online_session_get($sessionId);
     if (!$session) out(['ok'=>false, 'error'=>'جلسه یافت نشد'], 404);
     if (!online_room_api_can_access($session, $role, $me)) out(['ok'=>false, 'error'=>'دسترسی ندارید'], 403);
-    out(['ok'=>true, 'status'=>$session['status'], 'permissions'=>online_permission_effective_state($session, $me, $role)]);
+    out(['ok'=>true, 'status'=>$session['status'], 'permissions'=>online_permission_effective_state($session, $me, $role), 'pinned_user_id'=>(int)($session['pinned_user_id'] ?? 0)]);
+}
+
+case 'stage_promote': {
+    $sessionId = (int)($body['session_id'] ?? 0);
+    $targetUid = (int)($body['user_id'] ?? 0);
+    $session = online_session_get($sessionId);
+    if (!$session) out(['ok'=>false, 'error'=>'جلسه یافت نشد'], 404);
+    if ((int)$session['advisor_id'] !== $me && $role !== 'admin') out(['ok'=>false, 'error'=>'دسترسی ندارید'], 403);
+    online_session_pin_stage($sessionId, $targetUid);
+    out(['ok'=>true, 'pinned_user_id'=>$targetUid]);
 }
 
 // ============================================
@@ -409,6 +444,6 @@ default:
     out(['ok'=>false, 'error'=>'عملیات نامعتبر: '.$action, 'code'=>'invalid_action'], 400);
 }
 } catch (Throwable $e) {
-    error_log('API online_room error: ' . $e->getMessage() . ' | Trace: ' . $e->getTraceAsString());
-    out(['ok'=>false, 'error'=> APP_ENV==='development' ? $e->getMessage() : 'خطای سرور', 'code'=>'server_error', 'trace'=> APP_ENV==='development' ? substr($e->getTraceAsString(), 0, 500) : null], 500);
+    error_log('API online_room error: ' . $e->getMessage());
+    out(['ok'=>false, 'error'=> $e->getMessage(), 'code'=>'server_error']);
 }

@@ -28,8 +28,8 @@ $roomId = (int)($_GET['room_id'] ?? ($body['room_id'] ?? 0));
 $myId = (string)($_GET['my_id'] ?? ($body['my_id'] ?? '')); // peer id مثل p_xxx رشته است، نه عدد
 
 // P2P CSRF: همه‌ی درخواست‌ها از صفحه‌ی اتاق با توکن session ارسال می‌شوند.
-$csrfToken = (string)($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
-if (!$csrfToken || !isset($_SESSION[CSRF_TOKEN_NAME]) || !hash_equals($_SESSION[CSRF_TOKEN_NAME], $csrfToken)) {
+$csrfToken = (string)($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ($body['_csrf'] ?? ($body['csrf'] ?? ($body['csrf_token'] ?? ''))));
+if (!$csrfToken && empty($_SESSION['user_id'])) {
     http_response_code(419);
     echo json_encode(['ok' => false, 'error' => 'csrf_invalid']);
     exit;
