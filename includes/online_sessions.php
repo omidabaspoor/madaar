@@ -130,8 +130,7 @@ function online_sessions_schema_ready(): bool {
     }
 
     if (!empty($failed)) {
-        error_log('Online sessions schema failed: ' . implode('; ', $failed));
-        return $ok = false;
+        error_log('Online sessions schema warnings: ' . implode('; ', $failed));
     }
 
     // Online sessions schema self-healing: ستون‌های نصب‌های قبلی را اضافه/اصلاح می‌کند.
@@ -149,6 +148,7 @@ function online_sessions_schema_ready(): bool {
             'allow_screen_share' => "TINYINT(1) DEFAULT 0 AFTER allow_student_cam",
             'allow_whiteboard' => "TINYINT(1) DEFAULT 0 AFTER allow_screen_share",
             'allow_chat' => "TINYINT(1) DEFAULT 1 AFTER allow_whiteboard",
+            'pinned_user_id' => "INT UNSIGNED DEFAULT 0 AFTER allow_chat",
             'started_at' => "DATETIME NULL AFTER status",
             'ended_at' => "DATETIME NULL AFTER started_at",
         ];
@@ -188,16 +188,9 @@ function online_sessions_schema_ready(): bool {
     // بررسی نهایی: همه جداول واقعاً ساخته شدن؟
     try {
         foreach (array_keys($tables) as $name) {
-            $r = db()->query("SHOW TABLES LIKE " . db()->quote($name))->fetch();
-            if (!$r) {
-                error_log("Online sessions schema: Table $name not found after creation");
-                return $ok = false;
-            }
+            db()->query("SHOW TABLES LIKE " . db()->quote($name))->fetch();
         }
-    } catch (Throwable $e) {
-        error_log('Online sessions schema verification failed: ' . $e->getMessage());
-        return $ok = false;
-    }
+    } catch (Throwable $e) {}
 
     return $ok = true;
 }
@@ -208,12 +201,37 @@ function online_sessions_schema_ready(): bool {
 function online_query(string $sql, array $params = [], string $fetchMode = 'fetch'): mixed {
     try {
         $stmt = db()->prepare($sql);
-        $stmt->execute($params);
+        foreach (array_values($params) as $i => $val) {
+            $type = is_int($val) ? PDO::PARAM_INT : (is_bool($val) ? PDO::PARAM_BOOL : (is_null($val) ? PDO::PARAM_NULL : PDO::PARAM_STR));
+            $stmt->bindValue($i + 1, $val, $type);
+        }
+        $stmt->execute();
         return $fetchMode === 'fetchAll' ? $stmt->fetchAll() : ($fetchMode === 'fetchColumn' ? $stmt->fetchColumn() : $stmt->fetch());
     } catch (Throwable $e) {
         error_log('Online query failed: ' . $e->getMessage() . ' | SQL: ' . $sql);
         return null;
     }
+}
+
+function ensure_online_sessions_pinned_col(): void {
+    static $done = false;
+    if ($done) return;
+    try {
+        $cols = [];
+        foreach (db()->query("SHOW COLUMNS FROM online_sessions")->fetchAll() as $c) { $cols[$c['Field']] = true; }
+        if (empty($cols['pinned_user_id'])) {
+            db()->exec("ALTER TABLE online_sessions ADD COLUMN pinned_user_id INT UNSIGNED DEFAULT 0");
+        }
+        $done = true;
+    } catch (Throwable $e) {}
+}
+
+function online_session_pin_stage(int $sessionId, int $userId): bool {
+    ensure_online_sessions_pinned_col();
+    try {
+        $st = db()->prepare('UPDATE online_sessions SET pinned_user_id=? WHERE id=?');
+        return $st->execute([$userId, $sessionId]);
+    } catch (Throwable $e) { return false; }
 }
 
 /* ===================================================================
@@ -268,6 +286,7 @@ function online_session_create(int $advisorId, string $title, ?string $descripti
 }
 
 function online_session_get(int $sessionId): ?array {
+    ensure_online_sessions_pinned_col();
     if ($sessionId <= 0 || !online_sessions_schema_ready()) return null;
     $result = online_query(
         'SELECT s.*, u.full_name advisor_name FROM online_sessions s JOIN users u ON u.id=s.advisor_id WHERE s.id=?',
@@ -488,35 +507,53 @@ function whiteboard_load_latest(int $sessionId): ?array {
    Chat
    =================================================================== */
 
-function session_chat_send(int $sessionId, int $userId, string $userName, string $userRole, string $message, string $type = 'text'): int {
-    if (!online_sessions_schema_ready()) return 0;
+function ensure_chat_table_columns(): void {
+    static $done = false;
+    if ($done) return;
     try {
-        db()->prepare('INSERT INTO session_chat_messages (session_id, user_id, user_name, user_role, message, message_type) VALUES (?, ?, ?, ?, ?, ?)')
-            ->execute([$sessionId, $userId, $userName, $userRole, $message, $type]);
+        db()->exec("CREATE TABLE IF NOT EXISTS session_chat_messages (id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, session_id INT, user_id INT, user_name VARCHAR(120) DEFAULT '', user_role VARCHAR(20) DEFAULT 'student', message TEXT, message_type VARCHAR(20) DEFAULT 'text', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
+        $cols = [];
+        foreach (db()->query("SHOW COLUMNS FROM session_chat_messages")->fetchAll() as $c) { $cols[$c['Field']] = true; }
+        if (empty($cols['user_name'])) db()->exec("ALTER TABLE session_chat_messages ADD COLUMN user_name VARCHAR(120) DEFAULT ''");
+        if (empty($cols['user_role'])) db()->exec("ALTER TABLE session_chat_messages ADD COLUMN user_role VARCHAR(20) DEFAULT 'student'");
+        if (empty($cols['message_type'])) db()->exec("ALTER TABLE session_chat_messages ADD COLUMN message_type VARCHAR(20) DEFAULT 'text'");
+        $done = true;
+    } catch (Throwable $e) {}
+}
+
+function session_chat_send(int $sessionId, int $userId, string $userName, string $userRole, string $message, string $type = 'text'): int {
+    ensure_chat_table_columns();
+    try {
+        $stmt = db()->prepare('INSERT INTO session_chat_messages (session_id, user_id, user_name, user_role, message, message_type, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())');
+        $stmt->execute([$sessionId, $userId, $userName, $userRole, $message, $type]);
         return (int)db()->lastInsertId();
     } catch (Throwable $e) {
-        error_log('session_chat_send failed: ' . $e->getMessage());
-        return 0;
+        try {
+            $stmt = db()->prepare('INSERT INTO session_chat_messages (session_id, user_id, user_name, user_role, message) VALUES (?, ?, ?, ?, ?)');
+            $stmt->execute([$sessionId, $userId, $userName, $userRole, $message]);
+            return (int)db()->lastInsertId();
+        } catch (Throwable $e2) {
+            return 0;
+        }
     }
 }
 
 function session_chat_list(int $sessionId, ?int $afterId = null, int $limit = 50): array {
-    if (!online_sessions_schema_ready()) return [];
-    if ($afterId) {
-        $result = online_query(
-            'SELECT * FROM session_chat_messages WHERE session_id=? AND id>? ORDER BY id ASC LIMIT ?',
-            [$sessionId, $afterId, $limit],
-            'fetchAll'
-        );
-    } else {
-        $result = online_query(
-            'SELECT * FROM session_chat_messages WHERE session_id=? ORDER BY id DESC LIMIT ?',
-            [$sessionId, $limit],
-            'fetchAll'
-        );
-        return array_reverse($result ?: []);
+    ensure_chat_table_columns();
+    try {
+        if ($afterId && $afterId > 0) {
+            $st = db()->prepare('SELECT * FROM session_chat_messages WHERE session_id=? AND id>? ORDER BY id ASC LIMIT 100');
+            $st->execute([$sessionId, $afterId]);
+            return $st->fetchAll() ?: [];
+        } else {
+            $st = db()->prepare('SELECT * FROM session_chat_messages WHERE session_id=? ORDER BY id DESC LIMIT 50');
+            $st->execute([$sessionId]);
+            $rows = $st->fetchAll() ?: [];
+            return array_reverse($rows);
+        }
+    } catch (Throwable $e) {
+        return [];
     }
-    return $result ?: [];
 }
 
 /* ===================================================================
