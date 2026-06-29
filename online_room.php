@@ -132,6 +132,16 @@ $participantsPayload = array_map(fn($p) => [
         <div class="ch-iw"><div class="ch-ib" id="chatBox"><textarea class="ch-in" id="chIn" placeholder="پیام..." rows="1"></textarea><button class="ch-s" id="sendChat" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg></button></div></div>
       </div>
       <div class="pt-p" id="ptPn">
+        <?php if ($isHost): ?>
+        <div style="padding:10px;background:var(--b2);border-bottom:1px solid var(--bd);margin-bottom:8px">
+          <div style="font-size:11px;font-weight:bold;color:var(--g1);margin-bottom:8px">🔒 کنترل دسترسی عمومی اعضا:</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            <button class="perm-btn on" id="gPermWb" onclick="toggleGlobalPerm('whiteboard')">🎨 تخته: آزاد</button>
+            <button class="perm-btn on" id="gPermMic" onclick="toggleGlobalPerm('mic')">🎙 میکروفون: آزاد</button>
+            <button class="perm-btn on" id="gPermCam" onclick="toggleGlobalPerm('cam')">📷 دوربین: آزاد</button>
+          </div>
+        </div>
+        <?php endif; ?>
         <div class="pt-reqs" id="permReqs"></div>
         <div class="pt-l" id="ptList"></div>
       </div>
@@ -142,7 +152,6 @@ $participantsPayload = array_map(fn($p) => [
     <div class="vg">
       <div class="mv" id="mV">
         <div class="vc adv-c" id="advC" style="flex:1">
-          <div class="raw-watermark">مسیر داخلی رایگان مَدار</div>
           <div class="vbg" id="advBg"><div class="vav" style="background:linear-gradient(135deg,var(--g1),var(--g3))"><?= e($advisorLetters) ?><div class="sp-rng"></div></div><span class="vav-nm"><?= e($advisorName) ?></span></div>
           <div class="vbot"><div class="vlbl"><span class="vrl adv">مشاور</span><span id="advNameLbl"><?= e($advisorName) ?></span></div><div class="abrs" id="advBars"><i></i><i></i><i></i></div></div>
         </div>
@@ -157,15 +166,15 @@ $participantsPayload = array_map(fn($p) => [
     </div>
 
     <div class="bb">
-      <button class="tb" id="micTB" type="button" title="میکروفون"><svg id="micOn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg><svg id="micOff" style="display:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12"/><path d="M15 9.34V4a3 3 0 0 0-5.94-.6"/></svg><span class="tp">میکروفون</span></button>
-      <button class="tb" id="camTB" type="button" title="دوربین"><svg id="camOn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg><svg id="camOff" style="display:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M15.28 15.28A2 2 0 0 1 14 16H4a2 2 0 0 1-2-2V6c0-.5.18-.96.49-1.31"/><path d="M6 2h8a2 2 0 0 1 2 2v4l6-3v10"/></svg><span class="tp">دوربین</span></button>
+      <button class="tb" id="micTB" type="button" title="میکروفون"><svg id="micOn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg><svg id="micOff" style="display:none;color:#ff4444" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v1a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg><span class="tp">میکروفون</span></button>
+      <button class="tb" id="camTB" type="button" title="دوربین"><svg id="camOn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg><svg id="camOff" style="display:none;color:#ff4444" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M21 21H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3m3-3h6l2 3h4a2 2 0 0 1 2 2v9.34m-7.72-2.06a4 4 0 1 1-5.56-5.56"/></svg><span class="tp">دوربین</span></button>
       <div class="tdv"></div>
       <button class="tb" id="scrTB" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg><span class="tp">اشتراک صفحه</span></button>
       <button class="tb" id="wbTB" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></svg><span class="tp">تخته</span></button>
       <div class="tdv"></div>
-      <button class="tb" id="handTB" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 12.5V10a2 2 0 0 0-2-2 2 2 0 0 0-2 2"/><path d="M14 11V9a2 2 0 0 0-2-2 2 2 0 0 0-2 2v1"/><path d="M10 10.5V5a2 2 0 0 0-2-2 2 2 0 0 0-2 2v9"/><path d="M18 12.5a2 2 0 0 1 2 2c0 5-2 7-8 7s-6-2-8-5l-1.5-2.5"/></svg><span class="tp">دست</span></button>
+      <button class="tb" id="handTB" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"/><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg><span class="tp">دست</span></button>
       <button class="tb" id="openChatBottom" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg><span class="tp">چت</span></button>
-      <?php if ($isHost): ?><div class="tdv"></div><button class="tb" id="muteAllTB" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12"/><path d="M15 9.34V4a3 3 0 0 0-5.94-.6"/></svg><span class="tp">بی‌صدا</span></button><?php endif; ?>
+      <?php if ($isHost): ?><div class="tdv"></div><button class="tb" id="muteAllTB" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v1a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg><span class="tp">بی‌صدا</span></button><?php endif; ?>
     </div>
   </div>
 </div>
@@ -226,6 +235,7 @@ window.MADAR_ROOM = {
   displayName: <?= json_encode((string)$u['full_name'], JSON_UNESCAPED_UNICODE) ?>,
   status: '<?= e((string)$session['status']) ?>',
   isHost: <?= $isHost ? 'true' : 'false' ?>,
+  pinnedUserId: <?= (int)($session['pinned_user_id'] ?? 0) ?>,
   advisor: {id: <?= (int)$session['advisor_id'] ?>, name: <?= json_encode($advisorName, JSON_UNESCAPED_UNICODE) ?>, avatar: <?= json_encode($advisorLetters, JSON_UNESCAPED_UNICODE) ?>},
   participants: <?= json_encode($participantsPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>,
   permissions: {
